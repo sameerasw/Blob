@@ -39,30 +39,23 @@ struct RingView: View {
     @ObservedObject var viewModel: RingViewModel
     
     var body: some View {
-        ZStack {
-            // Main Ring (Liquid Glass)
+        GlassEffectContainer {
+            ZStack {
+                // Main Ring (Liquid Glass)
                 Circle()
-                    .stroke(Color.white.opacity(0.1), lineWidth: 1) // Subtle rim highlight
-                    .glassEffect(.regular)
-                    .frame(width: 80, height: 80)
-                    .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-
-                // Badge (Dynamic Number/Name - Liquid Glass)
-                Text(viewModel.workspaceName)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary) // Adaptive color
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                //                    .background(
-                //                        Capsule()
-                //                            .glassEffect()
-                //                    )
+//                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
                     .glassEffect()
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                    )
-                    .offset(y: -50)
+                    .frame(width: 80, height: 80)
+
+                // Badge (Dynamic name - Liquid Glass)
+                Text(viewModel.workspaceName)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassEffect()
+                    .offset(y: -55) // Offset to partially merge with the ring
+            }
         }
         .scaleEffect(viewModel.scale)
         .opacity(viewModel.opacity)
