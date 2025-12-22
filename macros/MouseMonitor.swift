@@ -43,6 +43,7 @@ class MouseMonitor: ObservableObject {
     
     // Stationary overlay tracking
     private var triggerPoint: CGPoint?
+    private var pendingGesture: GestureDirection?
     
     init() {
         // Load persisted settings
@@ -249,14 +250,22 @@ class MouseMonitor: ObservableObject {
                     isButton5Down = false
                     print("DEBUG: Hiding overlay")
                     self.triggerPoint = nil
+                    
+                    // Trigger pending gesture or final workspace switch on hide
+                    let gestureToFire = self.pendingGesture
+                    self.pendingGesture = nil
+                    
                     DispatchQueue.main.async {
-                        self.overlayController.setWorkspaceName(self.currentWorkspace)
+                        self.overlayController.updateMouseOffset(CGSize.zero)
+                        self.overlayController.setIndicatorIcon(nil as String?)
                         self.overlayController.hide()
                     }
                     
-                    // Trigger AeroSpace if workspace changed
-                    if let initial = initialWorkspace, currentWorkspace != initial {
-                        print("DEBUG: Workspace changed from \(initial) to \(currentWorkspace). Running AeroSpace command.")
+                    if let gesture = gestureToFire {
+                        triggerWorkspaceGesture(direction: gesture)
+                    } else if let initial = initialWorkspace, currentWorkspace != initial {
+                        // Regular scroll-based switch
+                        print("DEBUG: Workspace changed via scroll from \(initial) to \(currentWorkspace). Running AeroSpace command.")
                         runAeroSpaceCommand(for: currentWorkspace)
                     }
                     initialWorkspace = nil
@@ -274,10 +283,82 @@ class MouseMonitor: ObservableObject {
                 DispatchQueue.main.async {
                     self.overlayController.updateMouseOffset(offset)
                 }
+                
+                // Gesture Detection
+                let distance = sqrt(pow(offset.width, 2) + pow(offset.height, 2))
+                let exitThreshold: CGFloat = 160 // Distance to "select"
+                let resetThreshold: CGFloat = 80 // Distance to "clear/reset"
+
+                if distance > exitThreshold {
+                    // Update pending gesture based on direction
+                    if abs(offset.width) > abs(offset.height) { // horizontal focus
+                        let newGesture: GestureDirection = offset.width > 0 ? .next : .prev
+                        if pendingGesture != newGesture {
+                            pendingGesture = newGesture
+                            let icon = newGesture == .next ? "arrow.right.circle.fill" : "arrow.left.circle.fill"
+                            DispatchQueue.main.async {
+                                self.overlayController.setIndicatorIcon(icon)
+                            }
+                        }
+                    }
+                } else if distance < resetThreshold {
+                    if pendingGesture != nil {
+                        pendingGesture = nil
+                        DispatchQueue.main.async {
+                            self.overlayController.setIndicatorIcon(nil as String?)
+                        }
+                    }
+                }
+                
+                // Visual Feedback (Pre-selection arrows)
+                if pendingGesture == nil {
+                    if distance > 40 {
+                        let icon: String?
+                        if abs(offset.width) > abs(offset.height) {
+                            icon = offset.width > 0 ? "arrow.right" : "arrow.left"
+                        } else {
+                            icon = offset.height > 0 ? "arrow.down" : "arrow.up"
+                        }
+                        DispatchQueue.main.async {
+                            self.overlayController.setIndicatorIcon(icon)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.overlayController.setIndicatorIcon(nil as String?)
+                        }
+                    }
+                }
             }
         }
         
         return Unmanaged.passRetained(event)
+    }
+    
+    enum GestureDirection {
+        case next, prev
+    }
+    
+    private func triggerWorkspaceGesture(direction: GestureDirection) {
+        let command = direction == .next ? "workspace next --wrap-around" : "workspace prev --wrap-around"
+        
+        print("DEBUG: Executing deferred gesture: \(command)")
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let aerospacePath = "/opt/homebrew/bin/aerospace"
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: aerospacePath)
+            process.arguments = command.components(separatedBy: " ")
+            
+            do {
+                try process.run()
+                process.waitUntilExit()
+                
+                // Refresh current workspace name after gesture
+                self.fetchCurrentWorkspace()
+            } catch {
+                print("ERROR: Failed to run AeroSpace gesture command: \(error)")
+            }
+        }
     }
     
     private func fetchCurrentWorkspace() {

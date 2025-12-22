@@ -8,6 +8,7 @@ class RingViewModel: ObservableObject {
     @Published var opacity: Double = 0.0
     @Published var workspaceName: String = "1"
     @Published var mouseOffset: CGSize = .zero
+    @Published var indicatorIcon: String? = nil
     
     func show() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -43,36 +44,57 @@ class RingViewModel: ObservableObject {
             self.mouseOffset = offset
         }
     }
+    
+    func setIndicatorIcon(_ icon: String?) {
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                self.indicatorIcon = icon
+            }
+        }
+    }
 }
 
 struct RingView: View {
     @ObservedObject var viewModel: RingViewModel
     
     var body: some View {
-        GlassEffectContainer {
-            ZStack {
-                // Main Stationary Macro (Centered in the 600x600 container)
+        ZStack {
+            GlassEffectContainer {
                 ZStack {
+                    // Main Stationary Macro (Centered in the 600x600 container)
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0)
+                            .glassEffect(.regular)
+                            .frame(width: 80, height: 80)
+                        
+                        Text(viewModel.workspaceName)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .glassEffect()
+                            .offset(y: -55)
+                    }
+                    
+                    // Mouse Pointer Circle (Following the cursor)
                     Circle()
                         .stroke(Color.white.opacity(0.1), lineWidth: 0)
                         .glassEffect(.regular)
-                        .frame(width: 80, height: 80)
-                    
-                    Text(viewModel.workspaceName)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .glassEffect()
-                        .offset(y: -55)
+                        .frame(width: 30, height: 30)
+                        .offset(viewModel.mouseOffset)
                 }
-                
-                // Mouse Pointer Circle (Following the cursor)
-                Circle()
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0)
-                    .glassEffect(.regular)
-                    .frame(width: 30, height: 30)
-                    .offset(viewModel.mouseOffset)
+            }
+            
+            // Gesture Indicator Icon (Absolute Top Layer, outside glass container)
+            if let icon = viewModel.indicatorIcon {
+                Image(systemName: icon)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 5)
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(1000)
+                    .id(icon)
             }
         }
         .scaleEffect(viewModel.scale)
@@ -146,5 +168,9 @@ class OverlayWindowController {
     
     func setWorkspaceName(_ name: String) {
         viewModel.setWorkspaceName(name)
+    }
+    
+    func setIndicatorIcon(_ icon: String?) {
+        viewModel.setIndicatorIcon(icon)
     }
 }
