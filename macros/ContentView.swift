@@ -19,10 +19,32 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     
-                    Text("The overlay will appear when you hold Mouse Button 5.")
-                        .multilineTextAlignment(.center)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 15) {
+                        Text("Selection Settings")
+                            .font(.headline)
+                        
+                        Toggle("Reverse Scroll Direction", isOn: $mouseMonitor.reverseScroll)
+                            .toggleStyle(.switch)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Scroll Sensitivity")
+                                Spacer()
+                                Text(String(format: "%.1fx", mouseMonitor.scrollSensitivity))
+                                    .foregroundStyle(.secondary)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                            
+                            Slider(value: $mouseMonitor.scrollSensitivity, in: 1.0...5.0, step: 0.1)
+                            
+                            Text("Higher value = slower number change (requires more scrolling).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal)
                 }
             } else {
                 VStack(spacing: 12) {
@@ -59,6 +81,6 @@ struct ContentView: View {
             }
         }
         .padding(30)
-        .frame(width: 380)
+        .frame(width: 400)
     }
 }

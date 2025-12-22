@@ -7,6 +7,10 @@ import Combine
 class MouseMonitor: ObservableObject {
     @Published var isTrusted: Bool = false
     
+    // Scroll Customization
+    @Published var reverseScroll: Bool = false
+    @Published var scrollSensitivity: Double = 1.0 // 1.0 (fast) to 5.0 (slow)
+    
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private let overlayController = OverlayWindowController()
@@ -16,6 +20,9 @@ class MouseMonitor: ObservableObject {
     private let targetButtonNumber: Int64 = 4
     private var isButton5Down: Bool = false
     private var currentMacroNumber: Int = 1
+    
+    // Smooth scrolling accumulator
+    private var scrollAccumulator: Double = 0.0
     
     init() {
         checkPermissions()
@@ -111,22 +118,41 @@ class MouseMonitor: ObservableObject {
         // Handle Scroll Events
         if type == .scrollWheel {
             if isButton5Down {
-                // Adjust macro number (1-7) and CONSUME the event
-                let delta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-                if delta > 0 {
-                    // Scroll up
-                    currentMacroNumber = min(7, currentMacroNumber + 1)
-                } else if delta < 0 {
-                    // Scroll down
-                    currentMacroNumber = max(1, currentMacroNumber - 1)
+                // Determine direction based on raw delta
+                var delta = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
+                
+                // If it's 0 (high precision only), try fixed point
+                if delta == 0 {
+                    delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
                 }
                 
-                print("DEBUG: Macro Number Changed to: \(currentMacroNumber)")
-                DispatchQueue.main.async {
-                    self.overlayController.setMacroNumber(self.currentMacroNumber)
+                // Apply inversion
+                if reverseScroll {
+                    delta = -delta
                 }
                 
-                // Return nil to consume the event (prevent background scrolling)
+                // Apply sensitivity/accumulation
+                // We add the delta scaled by sensitivity (1.0 = normal, 5.0 = very slow)
+                scrollAccumulator += (delta / scrollSensitivity)
+                
+                // If the accumulator crosses 1 (or -1), change the number
+                if abs(scrollAccumulator) >= 1.0 {
+                    let steps = Int(floor(abs(scrollAccumulator)))
+                    let direction = scrollAccumulator > 0 ? 1 : -1
+                    
+                    // Update number
+                    currentMacroNumber = max(1, min(7, currentMacroNumber + (steps * direction)))
+                    
+                    // Keep the remainder for "sub-tick" feeling if sensitivity is low
+                    scrollAccumulator -= Double(steps * direction)
+                    
+                    print("DEBUG: Macro Number Changed to: \(currentMacroNumber) (Accumulator: \(scrollAccumulator))")
+                    DispatchQueue.main.async {
+                        self.overlayController.setMacroNumber(self.currentMacroNumber)
+                    }
+                }
+                
+                // Consume the event
                 return nil
             }
         }
@@ -139,6 +165,7 @@ class MouseMonitor: ObservableObject {
                 let location = event.location
                 if type == .otherMouseDown {
                     isButton5Down = true
+                    scrollAccumulator = 0 // Reset when starting
                     print("DEBUG: Showing overlay at \(location)")
                     DispatchQueue.main.async {
                         self.overlayController.show(at: self.convertPoint(location))
