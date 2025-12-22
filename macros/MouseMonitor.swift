@@ -20,6 +20,7 @@ class MouseMonitor: ObservableObject {
     private let targetButtonNumber: Int64 = 4
     private var isButton5Down: Bool = false
     private var currentMacroNumber: Int = 1
+    private var initialMacroNumber: Int?
     
     // Smooth scrolling accumulator
     private var scrollAccumulator: Double = 0.0
@@ -120,40 +121,27 @@ class MouseMonitor: ObservableObject {
             if isButton5Down {
                 // Determine direction based on raw delta
                 var delta = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
-                
-                // If it's 0 (high precision only), try fixed point
                 if delta == 0 {
                     delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
                 }
                 
-                // Apply inversion
                 if reverseScroll {
                     delta = -delta
                 }
                 
-                // Apply sensitivity/accumulation
-                // We add the delta scaled by sensitivity (1.0 = normal, 5.0 = very slow)
                 scrollAccumulator += (delta / scrollSensitivity)
                 
-                // If the accumulator crosses 1 (or -1), change the number
                 if abs(scrollAccumulator) >= 1.0 {
                     let steps = Int(floor(abs(scrollAccumulator)))
                     let direction = scrollAccumulator > 0 ? 1 : -1
-                    
-                    // Update number
                     currentMacroNumber = max(1, min(7, currentMacroNumber + (steps * direction)))
-                    
-                    // Keep the remainder for "sub-tick" feeling if sensitivity is low
                     scrollAccumulator -= Double(steps * direction)
                     
-                    print("DEBUG: Macro Number Changed to: \(currentMacroNumber) (Accumulator: \(scrollAccumulator))")
                     DispatchQueue.main.async {
                         self.overlayController.setMacroNumber(self.currentMacroNumber)
                     }
                 }
-                
-                // Consume the event
-                return nil
+                return nil // Consume
             }
         }
         
@@ -165,7 +153,8 @@ class MouseMonitor: ObservableObject {
                 let location = event.location
                 if type == .otherMouseDown {
                     isButton5Down = true
-                    scrollAccumulator = 0 // Reset when starting
+                    initialMacroNumber = currentMacroNumber
+                    scrollAccumulator = 0
                     print("DEBUG: Showing overlay at \(location)")
                     DispatchQueue.main.async {
                         self.overlayController.show(at: self.convertPoint(location))
@@ -176,6 +165,13 @@ class MouseMonitor: ObservableObject {
                     DispatchQueue.main.async {
                         self.overlayController.hide()
                     }
+                    
+                    // Trigger AeroSpace if number changed
+                    if let initial = initialMacroNumber, currentMacroNumber != initial {
+                        print("DEBUG: Number changed from \(initial) to \(currentMacroNumber). Running AeroSpace command.")
+                        runAeroSpaceCommand(for: currentMacroNumber)
+                    }
+                    initialMacroNumber = nil
                 }
             }
         } else if type == .otherMouseDragged || type == .mouseMoved {
@@ -186,6 +182,44 @@ class MouseMonitor: ObservableObject {
         }
         
         return Unmanaged.passRetained(event)
+    }
+    
+    private func runAeroSpaceCommand(for number: Int) {
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+        
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+        
+        let executablePath = "/opt/homebrew/bin/aerospace"
+        
+        guard FileManager.default.fileExists(atPath: executablePath) else {
+            print("ERROR: AeroSpace executable not found at \(executablePath)")
+            return
+        }
+        
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["workspace", String(number)]
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+            
+            if process.terminationStatus == 0 {
+                print("DEBUG: AeroSpace command successful: \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
+            } else {
+                print("ERROR: AeroSpace command failed (status \(process.terminationStatus)): \(errorOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        } catch {
+            print("ERROR: Failed to run AeroSpace process: \(error.localizedDescription)")
+        }
     }
     
     private func convertPoint(_ cgPoint: CGPoint) -> CGPoint {
