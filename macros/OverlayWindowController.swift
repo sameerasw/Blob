@@ -31,22 +31,35 @@ struct RingView: View {
     @ObservedObject var viewModel: RingViewModel
     
     var body: some View {
-        // ZStack ensures centering within the hosting view
         ZStack {
+            // Main Ring
             Circle()
                 .stroke(Color.black, lineWidth: 6)
                 .frame(width: 80, height: 80)
-                .scaleEffect(viewModel.scale)
-                .opacity(viewModel.opacity)
+            
+            // Badge (Number 1)
+            HStack {
+                Text("1")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.black))
+            }
+            // Position the badge above the circle's top edge.
+            // Circle is 80x80, so top edge is at -40. 
+            // We'll add some spacing (e.g., 10px).
+            .offset(y: -60) 
         }
-        .frame(width: 200, height: 200) // Match window size to avoid clipping
+        .scaleEffect(viewModel.scale)
+        .opacity(viewModel.opacity)
+        .frame(width: 200, height: 200) // Large frame to accommodate badge and animation
     }
 }
 
 class OverlayWindowController {
     var window: NSPanel?
     private let viewModel = RingViewModel()
-    private let windowSize: CGFloat = 200 // Large enough to prevent clipping and allow centering
+    private let windowSize: CGFloat = 200
     
     init() {
         setupWindow()
@@ -68,9 +81,8 @@ class OverlayWindowController {
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         
-        // Ensure the hosting view doesn't have its own background
         let hostingView = NSHostingView(rootView: RingView(viewModel: viewModel))
-        hostingView.layer?.backgroundColor = .clear
+        hostingView.alphaValue = 1.0
         panel.contentView = hostingView
         
         self.window = panel
@@ -83,7 +95,7 @@ class OverlayWindowController {
             return 
         }
         
-        // Center the window exactly on the point
+        // Centering logic: The center of the 200x200 window should be at 'point'
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
         
@@ -102,6 +114,7 @@ class OverlayWindowController {
     }
     
     func updatePosition(to point: CGPoint) {
+        // Maintain centering during movement
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
         window?.setFrameOrigin(NSPoint(x: x, y: y))
