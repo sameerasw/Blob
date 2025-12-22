@@ -7,9 +7,22 @@ import Combine
 class MouseMonitor: ObservableObject {
     @Published var isTrusted: Bool = false
     
+    // Scroll Customization Persistence Keys
+    private let reverseScrollKey = "reverseScroll"
+    private let scrollSensitivityKey = "scrollSensitivity"
+    
     // Scroll Customization
-    @Published var reverseScroll: Bool = false
-    @Published var scrollSensitivity: Double = 1.0 // 1.0 (fast) to 5.0 (slow)
+    @Published var reverseScroll: Bool {
+        didSet {
+            UserDefaults.standard.set(reverseScroll, forKey: reverseScrollKey)
+        }
+    }
+    
+    @Published var scrollSensitivity: Double {
+        didSet {
+            UserDefaults.standard.set(scrollSensitivity, forKey: scrollSensitivityKey)
+        }
+    }
     
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -26,6 +39,12 @@ class MouseMonitor: ObservableObject {
     private var scrollAccumulator: Double = 0.0
     
     init() {
+        // Load persisted settings
+        self.reverseScroll = UserDefaults.standard.bool(forKey: reverseScrollKey)
+        
+        let savedSensitivity = UserDefaults.standard.double(forKey: scrollSensitivityKey)
+        self.scrollSensitivity = savedSensitivity > 0 ? savedSensitivity : 1.0
+        
         checkPermissions()
         startPermissionCheckTimer()
     }
