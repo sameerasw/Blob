@@ -1,10 +1,3 @@
-//
-//  macrosApp.swift
-//  macros
-//
-//  Created by Sameera Sandakelum on 2025-12-22.
-//
-
 import SwiftUI
 
 @main

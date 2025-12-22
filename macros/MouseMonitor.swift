@@ -153,10 +153,16 @@ class MouseMonitor: ObservableObject {
                 let location = event.location
                 if type == .otherMouseDown {
                     isButton5Down = true
+                    
+                    // ON-DEMAND SYNC: Fetch current workspace before showing
+                    fetchCurrentWorkspace()
+                    
                     initialMacroNumber = currentMacroNumber
                     scrollAccumulator = 0
-                    print("DEBUG: Showing overlay at \(location)")
+                    
+                    print("DEBUG: Showing overlay at \(location). Current Number: \(currentMacroNumber)")
                     DispatchQueue.main.async {
+                        self.overlayController.setMacroNumber(self.currentMacroNumber)
                         self.overlayController.show(at: self.convertPoint(location))
                     }
                 } else {
@@ -184,38 +190,73 @@ class MouseMonitor: ObservableObject {
         return Unmanaged.passRetained(event)
     }
     
-    private func runAeroSpaceCommand(for number: Int) {
+    private func fetchCurrentWorkspace() {
+        let executablePath = "/opt/homebrew/bin/aerospace"
+        guard FileManager.default.fileExists(atPath: executablePath) else { return }
+        
         let process = Process()
         let pipe = Pipe()
-        let errorPipe = Pipe()
         
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-        
-        let executablePath = "/opt/homebrew/bin/aerospace"
-        
-        guard FileManager.default.fileExists(atPath: executablePath) else {
-            print("ERROR: AeroSpace executable not found at \(executablePath)")
-            return
-        }
+        // Silence the "incomplete JSON request" warning by providing empty env vars
+        var env = ProcessInfo.processInfo.environment
+        env["AEROSPACE_WINDOW_ID"] = "null"
+        env["AEROSPACE_WORKSPACE"] = "null"
+        process.environment = env
         
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["workspace", String(number)]
+        process.arguments = ["list-workspaces", "--focused"]
+        process.standardOutput = pipe
+        // Ignore stderr for the sync check to keep logs clean
+        process.standardError = Pipe() 
         
         do {
             try process.run()
             process.waitUntilExit()
             
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
+            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let workspaceNumber = Int(output) {
+                print("DEBUG: Fetched current AeroSpace workspace: \(workspaceNumber)")
+                self.currentMacroNumber = workspaceNumber
+            }
+        } catch {
+            print("ERROR: Failed to fetch workspace: \(error.localizedDescription)")
+        }
+    }
+    
+    private func runAeroSpaceCommand(for number: Int) {
+        let executablePath = "/opt/homebrew/bin/aerospace"
+        guard FileManager.default.fileExists(atPath: executablePath) else {
+            print("ERROR: AeroSpace executable not found at \(executablePath)")
+            return
+        }
+        
+        let process = Process()
+        let pipe = Pipe()
+        let errorPipe = Pipe()
+        
+        // Silence the "incomplete JSON request" warning
+        var env = ProcessInfo.processInfo.environment
+        env["AEROSPACE_WINDOW_ID"] = "null"
+        env["AEROSPACE_WORKSPACE"] = "null"
+        process.environment = env
+        
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["workspace", String(number)]
+        process.standardOutput = pipe
+        process.standardError = errorPipe
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
             
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            
-            if process.terminationStatus == 0 {
-                print("DEBUG: AeroSpace command successful: \(output.trimmingCharacters(in: .whitespacesAndNewlines))")
-            } else {
-                print("ERROR: AeroSpace command failed (status \(process.terminationStatus)): \(errorOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+            if process.terminationStatus != 0 {
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+                // Only log real errors, not the IPC warnings
+                if !errorOutput.contains("incomplete JSON request") {
+                    print("ERROR: AeroSpace command failed (status \(process.terminationStatus)): \(errorOutput)")
+                }
             }
         } catch {
             print("ERROR: Failed to run AeroSpace process: \(error.localizedDescription)")
