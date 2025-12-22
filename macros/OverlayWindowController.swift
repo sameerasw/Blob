@@ -11,6 +11,8 @@ class RingViewModel: ObservableObject {
     @Published var indicatorIcon: String? = nil
     @Published var badgeOpacity: Double = 0.0
     @Published var badgeOffset: CGFloat = 0.0
+    @Published var hOffset: CGFloat = 0.0 // For gravitational shake
+    @Published var scrollDirection: Int = 0 // For transition direction
     
     func show() {
         // Reset badge state
@@ -24,7 +26,7 @@ class RingViewModel: ObservableObject {
         }
         
         // Final badge animation after 0.5s delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                 self.badgeOpacity = 1.0
                 self.badgeOffset = -55 // Target position
@@ -46,10 +48,30 @@ class RingViewModel: ObservableObject {
         }
     }
     
-    func setWorkspaceName(_ name: String) {
-        // We can add a subtle animation if the number changes while shown
+    func setWorkspaceName(_ name: String, direction: Int = 0) {
         DispatchQueue.main.async {
-            self.workspaceName = name
+            // Determine direction for transitions
+            self.scrollDirection = direction
+            
+            // Trigger horizontal shake (gravitational pull)
+            // User requested: increase -> shake left, decrease -> shake right
+            let shakeAmount: CGFloat = direction > 0 ? -15 : 15
+            
+            if direction != 0 {
+                withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.5)) {
+                    self.hOffset = shakeAmount
+                }
+                
+                // Spring back to center
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.4).delay(0.1)) {
+                    self.hOffset = 0
+                }
+            }
+            
+            // Update name with slide transition
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                self.workspaceName = name
+            }
         }
     }
     
@@ -84,14 +106,23 @@ struct RingView: View {
                             .glassEffect(.regular)
                             .frame(width: 80, height: 80)
                         
-                        Text(viewModel.workspaceName)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .glassEffect()
-                            .opacity(viewModel.badgeOpacity)
-                            .offset(y: viewModel.badgeOffset)
+                        ZStack {
+                            Text(viewModel.workspaceName)
+                                .id(viewModel.workspaceName)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
+                                        removal: .move(edge: viewModel.scrollDirection > 0 ? .leading : .trailing)
+                                    ).combined(with: .opacity)
+                                )
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .glassEffect()
+                        .opacity(viewModel.badgeOpacity)
+                        .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
                     }
                     
                     // Mouse Pointer Circle (Following the cursor)
@@ -183,8 +214,8 @@ class OverlayWindowController {
         viewModel.setMouseOffset(offset)
     }
     
-    func setWorkspaceName(_ name: String) {
-        viewModel.setWorkspaceName(name)
+    func setWorkspaceName(_ name: String, direction: Int = 0) {
+        viewModel.setWorkspaceName(name, direction: direction)
     }
     
     func setIndicatorIcon(_ icon: String?) {

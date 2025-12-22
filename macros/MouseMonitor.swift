@@ -209,15 +209,15 @@ class MouseMonitor: ObservableObject {
                     
                     // Cycle through workspace names
                     if let currentIndex = workspaces.firstIndex(of: currentWorkspace) {
-                        let newIndex = (currentIndex + (steps * direction)) % workspaces.count
-                        let wrappedIndex = newIndex < 0 ? workspaces.count + newIndex : newIndex
-                        currentWorkspace = workspaces[wrappedIndex]
+                        let newIndex = currentIndex + (steps * direction)
+                        let clampedIndex = max(0, min(newIndex, workspaces.count - 1))
+                        currentWorkspace = workspaces[clampedIndex]
                     }
                     
                     scrollAccumulator -= Double(steps * direction)
                     
                     DispatchQueue.main.async {
-                        self.overlayController.setWorkspaceName(self.currentWorkspace)
+                        self.overlayController.setWorkspaceName(self.currentWorkspace, direction: direction)
                     }
                 }
                 return nil // Consume
