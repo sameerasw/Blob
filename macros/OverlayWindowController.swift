@@ -40,21 +40,29 @@ struct RingView: View {
     
     var body: some View {
         ZStack {
-            // Main Ring
-            Circle()
-                .stroke(Color.black, lineWidth: 6)
-                .frame(width: 80, height: 80)
-            
-            // Badge (Dynamic Number/Name)
-            HStack {
+            // Main Ring (Liquid Glass)
+                Circle()
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1) // Subtle rim highlight
+                    .glassEffect(.regular)
+                    .frame(width: 80, height: 80)
+                    .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+
+                // Badge (Dynamic Number/Name - Liquid Glass)
                 Text(viewModel.workspaceName)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .frame(minWidth: 24, minHeight: 24)
-                    .background(Capsule().fill(Color.black))
-            }
-            .offset(y: -60) 
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary) // Adaptive color
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                //                    .background(
+                //                        Capsule()
+                //                            .glassEffect()
+                //                    )
+                    .glassEffect()
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                    )
+                    .offset(y: -50)
         }
         .scaleEffect(viewModel.scale)
         .opacity(viewModel.opacity)
