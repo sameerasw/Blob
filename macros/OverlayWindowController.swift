@@ -6,6 +6,7 @@ class RingViewModel: ObservableObject {
     @Published var isVisible: Bool = false
     @Published var scale: CGFloat = 0.5
     @Published var opacity: Double = 0.0
+    @Published var macroNumber: Int = 1
     
     func show() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -25,6 +26,13 @@ class RingViewModel: ObservableObject {
             completion()
         }
     }
+    
+    func setNumber(_ number: Int) {
+        // We can add a subtle animation if the number changes while shown
+        DispatchQueue.main.async {
+            self.macroNumber = number
+        }
+    }
 }
 
 struct RingView: View {
@@ -37,22 +45,19 @@ struct RingView: View {
                 .stroke(Color.black, lineWidth: 6)
                 .frame(width: 80, height: 80)
             
-            // Badge (Number 1)
+            // Badge (Dynamic Number)
             HStack {
-                Text("1")
+                Text("\(viewModel.macroNumber)")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                     .frame(width: 24, height: 24)
                     .background(Circle().fill(Color.black))
             }
-            // Position the badge above the circle's top edge.
-            // Circle is 80x80, so top edge is at -40. 
-            // We'll add some spacing (e.g., 10px).
             .offset(y: -60) 
         }
         .scaleEffect(viewModel.scale)
         .opacity(viewModel.opacity)
-        .frame(width: 200, height: 200) // Large frame to accommodate badge and animation
+        .frame(width: 200, height: 200)
     }
 }
 
@@ -95,7 +100,6 @@ class OverlayWindowController {
             return 
         }
         
-        // Centering logic: The center of the 200x200 window should be at 'point'
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
         
@@ -114,9 +118,12 @@ class OverlayWindowController {
     }
     
     func updatePosition(to point: CGPoint) {
-        // Maintain centering during movement
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
         window?.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+    
+    func setMacroNumber(_ number: Int) {
+        viewModel.setNumber(number)
     }
 }

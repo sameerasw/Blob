@@ -14,6 +14,8 @@ class MouseMonitor: ObservableObject {
     
     // Mouse button 5 is index 4 in CGEvent data
     private let targetButtonNumber: Int64 = 4
+    private var isButton5Down: Bool = false
+    private var currentMacroNumber: Int = 1
     
     init() {
         checkPermissions()
@@ -78,6 +80,7 @@ class MouseMonitor: ObservableObject {
         eventMask |= (1 << CGEventType.otherMouseUp.rawValue)
         eventMask |= (1 << CGEventType.otherMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.mouseMoved.rawValue)
+        eventMask |= (1 << CGEventType.scrollWheel.rawValue)
         
         let observer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         
@@ -105,18 +108,43 @@ class MouseMonitor: ObservableObject {
     }
     
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Handle Scroll Events
+        if type == .scrollWheel {
+            if isButton5Down {
+                // Adjust macro number (1-7) and CONSUME the event
+                let delta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                if delta > 0 {
+                    // Scroll up
+                    currentMacroNumber = min(7, currentMacroNumber + 1)
+                } else if delta < 0 {
+                    // Scroll down
+                    currentMacroNumber = max(1, currentMacroNumber - 1)
+                }
+                
+                print("DEBUG: Macro Number Changed to: \(currentMacroNumber)")
+                DispatchQueue.main.async {
+                    self.overlayController.setMacroNumber(self.currentMacroNumber)
+                }
+                
+                // Return nil to consume the event (prevent background scrolling)
+                return nil
+            }
+        }
+        
+        // Handle Mouse Buttons
         if type == .otherMouseDown || type == .otherMouseUp {
             let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
-            print("DEBUG: Mouse action: \(type == .otherMouseDown ? "Down" : "Up"), Button: \(buttonNumber)")
             
             if buttonNumber == targetButtonNumber {
                 let location = event.location
                 if type == .otherMouseDown {
+                    isButton5Down = true
                     print("DEBUG: Showing overlay at \(location)")
                     DispatchQueue.main.async {
                         self.overlayController.show(at: self.convertPoint(location))
                     }
                 } else {
+                    isButton5Down = false
                     print("DEBUG: Hiding overlay")
                     DispatchQueue.main.async {
                         self.overlayController.hide()
@@ -125,8 +153,6 @@ class MouseMonitor: ObservableObject {
             }
         } else if type == .otherMouseDragged || type == .mouseMoved {
             let location = event.location
-            // Only update position logs if buttons are being held to avoid spamming
-            // But for now let's keep it simple
             DispatchQueue.main.async {
                 self.overlayController.updatePosition(to: self.convertPoint(location))
             }

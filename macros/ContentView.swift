@@ -14,12 +14,19 @@ struct ContentView: View {
                 .font(.headline)
             
             if mouseMonitor.isTrusted {
-                Text("Permissions granted. Holding Mouse Button 5 will show the ring overlay.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 15) {
+                    Text("Macro features active.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    Text("The overlay will appear when you hold Mouse Button 5.")
+                        .multilineTextAlignment(.center)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 VStack(spacing: 12) {
-                    Text("Macro features require Accessibility permissions to monitor mouse buttons globally.")
+                    Text("Macro features require Accessibility permissions to monitor mouse events globally.")
                         .multilineTextAlignment(.center)
                     
                     Button("Grant Permissions") {
@@ -43,13 +50,15 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Instructions:")
                     .font(.caption.bold())
-                Text("• Hold Button 5 (Forward): Show Ring")
+                Text("• Hold Button 5: Show Ring + Selection")
                     .font(.caption)
-                Text("• Release Button 5: Hide Ring")
+                Text("• Scroll (Held): Change Macro (1-7)")
+                    .font(.caption)
+                Text("• Release Button 5: Hide Overlay")
                     .font(.caption)
             }
         }
         .padding(30)
-        .frame(width: 350)
+        .frame(width: 380)
     }
 }
