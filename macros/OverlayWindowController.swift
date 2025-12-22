@@ -6,7 +6,7 @@ class RingViewModel: ObservableObject {
     @Published var isVisible: Bool = false
     @Published var scale: CGFloat = 0.5
     @Published var opacity: Double = 0.0
-    @Published var macroNumber: Int = 1
+    @Published var workspaceName: String = "1"
     
     func show() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -27,10 +27,10 @@ class RingViewModel: ObservableObject {
         }
     }
     
-    func setNumber(_ number: Int) {
+    func setWorkspaceName(_ name: String) {
         // We can add a subtle animation if the number changes while shown
         DispatchQueue.main.async {
-            self.macroNumber = number
+            self.workspaceName = name
         }
     }
 }
@@ -45,13 +45,14 @@ struct RingView: View {
                 .stroke(Color.black, lineWidth: 6)
                 .frame(width: 80, height: 80)
             
-            // Badge (Dynamic Number)
+            // Badge (Dynamic Number/Name)
             HStack {
-                Text("\(viewModel.macroNumber)")
+                Text(viewModel.workspaceName)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.black))
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .background(Capsule().fill(Color.black))
             }
             .offset(y: -60) 
         }
@@ -123,7 +124,7 @@ class OverlayWindowController {
         window?.setFrameOrigin(NSPoint(x: x, y: y))
     }
     
-    func setMacroNumber(_ number: Int) {
-        viewModel.setNumber(number)
+    func setWorkspaceName(_ name: String) {
+        viewModel.setWorkspaceName(name)
     }
 }

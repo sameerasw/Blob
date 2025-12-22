@@ -32,8 +32,11 @@ class MouseMonitor: ObservableObject {
     // Mouse button 5 is index 4 in CGEvent data
     private let targetButtonNumber: Int64 = 4
     private var isButton5Down: Bool = false
-    private var currentMacroNumber: Int = 1
-    private var initialMacroNumber: Int?
+    
+    // Dynamic workspace names from AeroSpace
+    @Published var workspaces: [String] = ["1", "2", "3", "4", "5", "6", "7"] // Fallback
+    @Published var currentWorkspace: String = "1"
+    private var initialWorkspace: String?
     
     // Smooth scrolling accumulator
     private var scrollAccumulator: Double = 0.0
@@ -45,8 +48,54 @@ class MouseMonitor: ObservableObject {
         let savedSensitivity = UserDefaults.standard.double(forKey: scrollSensitivityKey)
         self.scrollSensitivity = savedSensitivity > 0 ? savedSensitivity : 1.0
         
+        // Start fetches on background queues to avoid blocking initialization
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.fetchAllWorkspaces()
+        }
+        
         checkPermissions()
         startPermissionCheckTimer()
+    }
+    
+    private func fetchAllWorkspaces() {
+        let executablePath = "/opt/homebrew/bin/aerospace"
+        guard FileManager.default.fileExists(atPath: executablePath) else { return }
+        
+        let process = Process()
+        let pipe = Pipe()
+        
+        var env = ProcessInfo.processInfo.environment
+        env["AEROSPACE_WINDOW_ID"] = "null"
+        env["AEROSPACE_WORKSPACE"] = "null"
+        process.environment = env
+        
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = ["list-workspaces", "--all"]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        
+        do {
+            try process.run()
+            
+            // Read data before/during wait to avoid pipe buffer deadlocks
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            
+            if let output = String(data: data, encoding: .utf8) {
+                let lines = output.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                
+                if !lines.isEmpty {
+                    DispatchQueue.main.async {
+                        self.workspaces = lines
+                        print("DEBUG: Fetched AeroSpace workspaces: \(lines)")
+                    }
+                }
+            }
+        } catch {
+            print("ERROR: Failed to fetch all workspaces: \(error.localizedDescription)")
+        }
     }
     
     func checkPermissions() {
@@ -153,11 +202,18 @@ class MouseMonitor: ObservableObject {
                 if abs(scrollAccumulator) >= 1.0 {
                     let steps = Int(floor(abs(scrollAccumulator)))
                     let direction = scrollAccumulator > 0 ? 1 : -1
-                    currentMacroNumber = max(1, min(7, currentMacroNumber + (steps * direction)))
+                    
+                    // Cycle through workspace names
+                    if let currentIndex = workspaces.firstIndex(of: currentWorkspace) {
+                        let newIndex = (currentIndex + (steps * direction)) % workspaces.count
+                        let wrappedIndex = newIndex < 0 ? workspaces.count + newIndex : newIndex
+                        currentWorkspace = workspaces[wrappedIndex]
+                    }
+                    
                     scrollAccumulator -= Double(steps * direction)
                     
                     DispatchQueue.main.async {
-                        self.overlayController.setMacroNumber(self.currentMacroNumber)
+                        self.overlayController.setWorkspaceName(self.currentWorkspace)
                     }
                 }
                 return nil // Consume
@@ -176,12 +232,12 @@ class MouseMonitor: ObservableObject {
                     // ON-DEMAND SYNC: Fetch current workspace before showing
                     fetchCurrentWorkspace()
                     
-                    initialMacroNumber = currentMacroNumber
+                    initialWorkspace = currentWorkspace
                     scrollAccumulator = 0
                     
-                    print("DEBUG: Showing overlay at \(location). Current Number: \(currentMacroNumber)")
+                    print("DEBUG: Showing overlay at \(location). Current Workspace: \(currentWorkspace)")
                     DispatchQueue.main.async {
-                        self.overlayController.setMacroNumber(self.currentMacroNumber)
+                        self.overlayController.setWorkspaceName(self.currentWorkspace)
                         self.overlayController.show(at: self.convertPoint(location))
                     }
                 } else {
@@ -191,12 +247,12 @@ class MouseMonitor: ObservableObject {
                         self.overlayController.hide()
                     }
                     
-                    // Trigger AeroSpace if number changed
-                    if let initial = initialMacroNumber, currentMacroNumber != initial {
-                        print("DEBUG: Number changed from \(initial) to \(currentMacroNumber). Running AeroSpace command.")
-                        runAeroSpaceCommand(for: currentMacroNumber)
+                    // Trigger AeroSpace if workspace changed
+                    if let initial = initialWorkspace, currentWorkspace != initial {
+                        print("DEBUG: Workspace changed from \(initial) to \(currentWorkspace). Running AeroSpace command.")
+                        runAeroSpaceCommand(for: currentWorkspace)
                     }
-                    initialMacroNumber = nil
+                    initialWorkspace = nil
                 }
             }
         } else if type == .otherMouseDragged || type == .mouseMoved {
@@ -210,40 +266,44 @@ class MouseMonitor: ObservableObject {
     }
     
     private func fetchCurrentWorkspace() {
-        let executablePath = "/opt/homebrew/bin/aerospace"
-        guard FileManager.default.fileExists(atPath: executablePath) else { return }
-        
-        let process = Process()
-        let pipe = Pipe()
-        
-        // Silence the "incomplete JSON request" warning by providing empty env vars
-        var env = ProcessInfo.processInfo.environment
-        env["AEROSPACE_WINDOW_ID"] = "null"
-        env["AEROSPACE_WORKSPACE"] = "null"
-        process.environment = env
-        
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["list-workspaces", "--focused"]
-        process.standardOutput = pipe
-        // Ignore stderr for the sync check to keep logs clean
-        process.standardError = Pipe() 
-        
-        do {
-            try process.run()
-            process.waitUntilExit()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let executablePath = "/opt/homebrew/bin/aerospace"
+            guard FileManager.default.fileExists(atPath: executablePath) else { return }
             
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let workspaceNumber = Int(output) {
-                print("DEBUG: Fetched current AeroSpace workspace: \(workspaceNumber)")
-                self.currentMacroNumber = workspaceNumber
+            let process = Process()
+            let pipe = Pipe()
+            
+            var env = ProcessInfo.processInfo.environment
+            env["AEROSPACE_WINDOW_ID"] = "null"
+            env["AEROSPACE_WORKSPACE"] = "null"
+            process.environment = env
+            
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = ["list-workspaces", "--focused"]
+            process.standardOutput = pipe
+            process.standardError = Pipe() 
+            
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                
+                if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    if !output.isEmpty {
+                        print("DEBUG: Fetched current AeroSpace workspace: \(output)")
+                        DispatchQueue.main.async {
+                            self.currentWorkspace = output
+                            self.overlayController.setWorkspaceName(output)
+                        }
+                    }
+                }
+            } catch {
+                print("ERROR: Failed to fetch current workspace: \(error.localizedDescription)")
             }
-        } catch {
-            print("ERROR: Failed to fetch workspace: \(error.localizedDescription)")
         }
     }
     
-    private func runAeroSpaceCommand(for number: Int) {
+    private func runAeroSpaceCommand(for workspace: String) {
         let executablePath = "/opt/homebrew/bin/aerospace"
         guard FileManager.default.fileExists(atPath: executablePath) else {
             print("ERROR: AeroSpace executable not found at \(executablePath)")
@@ -261,7 +321,7 @@ class MouseMonitor: ObservableObject {
         process.environment = env
         
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["workspace", String(number)]
+        process.arguments = ["workspace", workspace]
         process.standardOutput = pipe
         process.standardError = errorPipe
         
