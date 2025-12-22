@@ -41,6 +41,9 @@ class MouseMonitor: ObservableObject {
     // Smooth scrolling accumulator
     private var scrollAccumulator: Double = 0.0
     
+    // Stationary overlay tracking
+    private var triggerPoint: CGPoint?
+    
     init() {
         // Load persisted settings
         self.reverseScroll = UserDefaults.standard.bool(forKey: reverseScrollKey)
@@ -236,14 +239,18 @@ class MouseMonitor: ObservableObject {
                     scrollAccumulator = 0
                     
                     print("DEBUG: Showing overlay at \(location). Current Workspace: \(currentWorkspace)")
+                    let point = self.convertPoint(location)
+                    self.triggerPoint = point
                     DispatchQueue.main.async {
                         self.overlayController.setWorkspaceName(self.currentWorkspace)
-                        self.overlayController.show(at: self.convertPoint(location))
+                        self.overlayController.show(at: point)
                     }
                 } else {
                     isButton5Down = false
                     print("DEBUG: Hiding overlay")
+                    self.triggerPoint = nil
                     DispatchQueue.main.async {
+                        self.overlayController.setWorkspaceName(self.currentWorkspace)
                         self.overlayController.hide()
                     }
                     
@@ -256,9 +263,17 @@ class MouseMonitor: ObservableObject {
                 }
             }
         } else if type == .otherMouseDragged || type == .mouseMoved {
-            let location = event.location
-            DispatchQueue.main.async {
-                self.overlayController.updatePosition(to: self.convertPoint(location))
+            let location = self.convertPoint(event.location)
+            
+            if let trigger = triggerPoint {
+                // Calculate offset relative to stationary trigger point
+                let offset = CGSize(
+                    width: location.x - trigger.x,
+                    height: -(location.y - trigger.y) // Invert Y for SwiftUI offset
+                )
+                DispatchQueue.main.async {
+                    self.overlayController.updateMouseOffset(offset)
+                }
             }
         }
         

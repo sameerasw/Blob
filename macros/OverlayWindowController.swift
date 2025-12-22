@@ -7,6 +7,7 @@ class RingViewModel: ObservableObject {
     @Published var scale: CGFloat = 0.5
     @Published var opacity: Double = 0.0
     @Published var workspaceName: String = "1"
+    @Published var mouseOffset: CGSize = .zero
     
     func show() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
@@ -20,6 +21,7 @@ class RingViewModel: ObservableObject {
         withAnimation(.easeIn(duration: 0.2)) {
             scale = 0.5
             opacity = 0.0
+            mouseOffset = .zero // Reset offset for next show
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.isVisible = false
@@ -33,6 +35,14 @@ class RingViewModel: ObservableObject {
             self.workspaceName = name
         }
     }
+    
+    func setMouseOffset(_ offset: CGSize) {
+        // We use immediate updates for the pointer to feel responsive,
+        // but the merging effects are handled by the GlassEffectContainer
+        DispatchQueue.main.async {
+            self.mouseOffset = offset
+        }
+    }
 }
 
 struct RingView: View {
@@ -41,32 +51,40 @@ struct RingView: View {
     var body: some View {
         GlassEffectContainer {
             ZStack {
-                // Main Ring (Liquid Glass)
+                // Main Stationary Macro (Centered in the 600x600 container)
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.1), lineWidth: 0)
+                        .glassEffect(.regular)
+                        .frame(width: 80, height: 80)
+                    
+                    Text(viewModel.workspaceName)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .glassEffect()
+                        .offset(y: -55)
+                }
+                
+                // Mouse Pointer Circle (Following the cursor)
                 Circle()
-//                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                    .glassEffect()
-                    .frame(width: 80, height: 80)
-
-                // Badge (Dynamic name - Liquid Glass)
-                Text(viewModel.workspaceName)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .glassEffect()
-                    .offset(y: -55) // Offset to partially merge with the ring
+                    .stroke(Color.white.opacity(0.1), lineWidth: 0)
+                    .glassEffect(.regular)
+                    .frame(width: 30, height: 30)
+                    .offset(viewModel.mouseOffset)
             }
         }
         .scaleEffect(viewModel.scale)
         .opacity(viewModel.opacity)
-        .frame(width: 200, height: 200)
+        .frame(width: 600, height: 600)
     }
 }
 
 class OverlayWindowController {
     var window: NSPanel?
     private let viewModel = RingViewModel()
-    private let windowSize: CGFloat = 200
+    private let windowSize: CGFloat = 600
     
     init() {
         setupWindow()
@@ -97,10 +115,7 @@ class OverlayWindowController {
     
     func show(at point: CGPoint) {
         print("DEBUG: WindowController.show(at: \(point))")
-        guard let window = window else { 
-            print("ERROR: Window is nil")
-            return 
-        }
+        guard let window = window else { return }
         
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
@@ -123,6 +138,10 @@ class OverlayWindowController {
         let x = point.x - (windowSize / 2)
         let y = point.y - (windowSize / 2)
         window?.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+    
+    func updateMouseOffset(_ offset: CGSize) {
+        viewModel.setMouseOffset(offset)
     }
     
     func setWorkspaceName(_ name: String) {
