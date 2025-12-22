@@ -9,12 +9,26 @@ class RingViewModel: ObservableObject {
     @Published var workspaceName: String = "1"
     @Published var mouseOffset: CGSize = .zero
     @Published var indicatorIcon: String? = nil
+    @Published var badgeOpacity: Double = 0.0
+    @Published var badgeOffset: CGFloat = 0.0
     
     func show() {
+        // Reset badge state
+        badgeOpacity = 0.0
+        badgeOffset = 0.0
+        
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
             isVisible = true
             scale = 1.0
             opacity = 1.0
+        }
+        
+        // Final badge animation after 0.5s delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                self.badgeOpacity = 1.0
+                self.badgeOffset = -55 // Target position
+            }
         }
     }
     
@@ -23,6 +37,8 @@ class RingViewModel: ObservableObject {
             scale = 0.5
             opacity = 0.0
             mouseOffset = .zero // Reset offset for next show
+            badgeOpacity = 0.0
+            badgeOffset = 0.0
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.isVisible = false
@@ -74,7 +90,8 @@ struct RingView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .glassEffect()
-                            .offset(y: -55)
+                            .opacity(viewModel.badgeOpacity)
+                            .offset(y: viewModel.badgeOffset)
                     }
                     
                     // Mouse Pointer Circle (Following the cursor)
