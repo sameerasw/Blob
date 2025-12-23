@@ -201,9 +201,18 @@ class MouseMonitor: ObservableObject {
                 let location = self.convertPoint(event.location)
                 if let trigger = triggerPoint {
                     let offsetY = -(location.y - trigger.y)
-                    // If mouse is not far enough UP (beyond threshold), ignore scroll
+                    // If mouse is not far enough UP (beyond threshold), convert to horizontal scroll
                     if offsetY > -100 { // UP is negative offsetY
-                        return nil
+                        let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                        let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                        
+                        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
+                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
+                        
+                        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+                        
+                        return Unmanaged.passRetained(event)
                     }
                 }
                 
