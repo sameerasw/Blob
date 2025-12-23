@@ -32,10 +32,29 @@ class RingViewModel: ObservableObject {
         if isWorkspaceGrouped {
             // Group by workspace, take the first window as representative
             var seenWorkspaces = Set<String>()
-            return windows.filter { window in
+            let grouped = windows.filter { window in
                 guard let ws = window.workspace, !seenWorkspaces.contains(ws) else { return false }
                 seenWorkspaces.insert(ws)
                 return true
+            }
+            
+            // Sort: Numbers first, then Strings.
+            return grouped.sorted { w1, w2 in
+                let ws1 = w1.workspace ?? ""
+                let ws2 = w2.workspace ?? ""
+                
+                let n1 = Int(ws1)
+                let n2 = Int(ws2)
+                
+                if let n1 = n1, let n2 = n2 {
+                    return n1 < n2
+                } else if n1 != nil {
+                    return true // number < string
+                } else if n2 != nil {
+                    return false // string > number
+                } else {
+                    return ws1 < ws2
+                }
             }
         }
         return windows
@@ -207,7 +226,7 @@ struct RingView: View {
                             .frame(width: viewModel.isExpanded ? 160 : 80, height: viewModel.isExpanded ? 160 : 80)
                             .onTapGesture {
                                 if viewModel.isExpanded {
-                                    withAnimation(.spring()) {
+                                    withAnimation(.interactiveSpring(response: 0.5, dampingFraction: 0.7, blendDuration: 0.3)) {
                                         viewModel.toggleGrouping()
                                     }
                                 }
