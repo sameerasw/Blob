@@ -16,6 +16,7 @@ class RingViewModel: ObservableObject {
     @Published var isExpanded: Bool = false
     @Published var isAtCenter: Bool = true
     @Published var triggerPoint: CGPoint = .zero
+    @Published var windows: [WindowInfo] = []
     
     func show(at point: CGPoint) {
         // Reset state
@@ -129,6 +130,14 @@ class RingViewModel: ObservableObject {
             }
         }
     }
+    
+    func setWindows(_ windows: [WindowInfo]) {
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                self.windows = windows
+            }
+        }
+    }
 }
 
 struct RingView: View {
@@ -152,60 +161,172 @@ struct RingView: View {
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isExpanded)
             
             ZStack {
-                GlassEffectContainer {
-                ZStack {
-                    // Main Stationary Macro (Centered in the 600x600 container)
+                // 1. Background Layer (The Merging "Gooey" Shapes)
+//                GlassEffectContainer {
                     ZStack {
+                        // Main HUD Base
                         Circle()
                             .stroke(Color.white.opacity(0.1), lineWidth: 0)
-                            .glassEffect(.regular)
+                            .glassEffect()
                             .frame(width: viewModel.isExpanded ? 160 : 80, height: viewModel.isExpanded ? 160 : 80)
                         
-                        if shouldShowBadge {
-                            ZStack {
-                                Text(viewModel.workspaceName)
-                                    .id(viewModel.workspaceName)
-                                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                    .transition(
-                                        .asymmetric(
-                                            insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
-                                            removal: .move(edge: viewModel.scrollDirection > 0 ? .leading : .trailing)
-                                        ).combined(with: .opacity)
-                                    )
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                        // Tracker Circle
+                        Circle()
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0)
                             .glassEffect()
-                            .opacity(viewModel.badgeOpacity) 
-                            .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
-                        }
+                            .frame(width: 30, height: 30)
+                            .offset(viewModel.mouseOffset)
                     }
-                    
-                    // Mouse Pointer Circle (Following the cursor)
-                    Circle()
-                        .stroke(Color.white.opacity(0.1), lineWidth: 0)
-                        .glassEffect(.regular)
-                        .frame(width: 30, height: 30)
-                        .offset(viewModel.mouseOffset)
+//                }
+                
+                // 2. Bubble Background Layer (Regular Translucency - NO merging/artifacts)
+                ZStack {
+                    if viewModel.isExpanded {
+                        ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
+                            WindowBubbleBackground(index: index, totalCount: min(viewModel.windows.count, 12))
+                        }
                     }
                 }
                 
-                if let icon = viewModel.indicatorIcon {
-                    Image(systemName: icon)
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.3), radius: 5)
-                        .transition(.scale.combined(with: .opacity))
-                        .zIndex(1000)
-                        .id(icon)
+                // 3. Foreground Layer (Sharp Content - Titles/Icons)
+                ZStack {
+                    // Window Titles & App Names
+                    if viewModel.isExpanded {
+                        ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
+                            WindowBubbleContent(window: window, index: index, totalCount: min(viewModel.windows.count, 12))
+                        }
+                    }
+                    
+                    // Workspace Badge
+                    if shouldShowBadge {
+                        Text(viewModel.workspaceName)
+                            .id(viewModel.workspaceName)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .glassEffect()
+                            .opacity(viewModel.badgeOpacity)
+                            .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
+                            .transition(
+                                .asymmetric(
+                                    insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
+                                    removal: .move(edge: viewModel.scrollDirection > 0 ? .leading : .trailing)
+                                ).combined(with: .opacity)
+                            )
+                    }
+                    
+                    // Action Icon (Center)
+                    if let icon = viewModel.indicatorIcon {
+                        Image(systemName: icon)
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.3), radius: 5)
+                            .id(icon)
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
             }
             .scaleEffect(viewModel.scale)
             .opacity(viewModel.opacity)
             .frame(width: 2000, height: 2000)
-            .position(viewModel.triggerPoint) // Position HUD at trigger point on full-screen canvas
+            .position(viewModel.triggerPoint)
         }
+    }
+}
+
+struct WindowBubbleBackground: View {
+    let index: Int
+    let totalCount: Int
+    
+    var body: some View {
+        let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
+        let radius: CGFloat = 160
+        let offsetX = radius * CGFloat(cos(angle))
+        let offsetY = radius * CGFloat(sin(angle))
+        
+        return Circle()
+            .stroke(Color.white.opacity(0.1), lineWidth: 0)
+//            .background(.ultraThinMaterial)
+//            .clipShape(Circle())
+            .glassEffect()
+            .frame(width: 80, height: 80)
+            .offset(x: offsetX, y: offsetY)
+            .transition(.scale.combined(with: .opacity))
+    }
+}
+
+struct WindowBubbleContent: View {
+    let window: WindowInfo
+    let index: Int
+    let totalCount: Int
+    
+    var body: some View {
+        let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
+        let radius: CGFloat = 160
+        let offsetX = radius * CGFloat(cos(angle))
+        let offsetY = radius * CGFloat(sin(angle))
+        
+        return VStack(spacing: 2) {
+            Text(window.appName)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+            
+            if !window.title.isEmpty {
+                Text(window.title)
+                    .font(.system(size: 8))
+                    .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .frame(maxWidth: 60)
+            }
+        }
+        .offset(x: offsetX, y: offsetY)
+        .transition(.scale.combined(with: .opacity))
+    }
+}
+
+// MARK: - Glass Effect Components
+
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode
+    
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
+struct GlassEffectContainer<Content: View>: View {
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .compositingGroup()
+            .blur(radius: 8)      // Organic blur for merging
+            .contrast(15)         // Moderate contrast for "liquid" look without artifacts
+    }
+}
+
+extension View {
+    func glassEffect(_ material: NSVisualEffectView.Material = .hudWindow) -> some View {
+        self.background(
+            VisualEffectView(material: material, blendingMode: .withinWindow)
+                .clipShape(Capsule())
+        )
     }
 }
 
@@ -296,5 +417,36 @@ class OverlayWindowController {
     
     func setBadgeProgress(_ progress: CGFloat) {
         viewModel.setBadgeProgress(progress)
+    }
+    
+    func setWindows(_ windows: [WindowInfo]) {
+        viewModel.setWindows(windows)
+    }
+    
+    var hasWindows: Bool {
+        return !viewModel.windows.isEmpty
+    }
+    
+    func windowAtOffset(_ offset: CGSize) -> WindowInfo? {
+        // Must match the layout in RingView/WindowBubble
+        let windows = Array(viewModel.windows.suffix(12))
+        let totalCount = min(viewModel.windows.count, 12)
+        let radius: CGFloat = 160
+        let tolerance: CGFloat = 45 // Bubble is 80x80, so radius 40. +5 for ease of use.
+        
+        for (index, window) in windows.enumerated() {
+            let angle = (Double(index) / Double(totalCount)) * 2 * .pi - .pi / 2
+            let bubbleX = radius * cos(angle)
+            let bubbleY = radius * sin(angle)
+            
+            let dx = Double(offset.width) - bubbleX
+            let dy = Double(offset.height) - bubbleY
+            let distVal = sqrt(dx*dx + dy*dy)
+            
+            if distVal < tolerance {
+                return window
+            }
+        }
+        return nil
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import AppKit
 import SwiftUI
+import Foundation
 import Combine
 
 class MouseMonitor: ObservableObject {
@@ -49,6 +50,9 @@ class MouseMonitor: ObservableObject {
     private var mouseDownTime: Date?
     private var actionTriggered: Bool = false
     private let swallowSourceID: Int64 = 777
+    private var windowsFetchedThisSession = false
+    
+    // Trackers for press duration and action consumption
     
     init() {
         // Load persisted settings
@@ -300,6 +304,12 @@ class MouseMonitor: ObservableObject {
                     DispatchQueue.main.async {
                         self.overlayController.setWorkspaceName(self.currentWorkspace)
                         self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN AT START
+                        
+                        // Re-use windows: only fetch if empty
+                        if !self.overlayController.hasWindows {
+                            self.fetchWindows()
+                        }
+                        
                         self.overlayController.show(at: point)
                     }
                     return nil // SWALLOW MOUSE DOWN
@@ -315,6 +325,20 @@ class MouseMonitor: ObservableObject {
                     self.pendingGesture = nil
                     
                     DispatchQueue.main.async {
+                        // Check for window selection before hiding
+                        if self.pendingGesture == .expand {
+                            if let trigger = self.triggerPoint {
+                                let offset = CGSize(
+                                    width: location.x - trigger.x,
+                                    height: -(location.y - trigger.y)
+                                )
+                                if let selectedWindow = self.overlayController.windowAtOffset(offset) {
+                                    print("DEBUG: Selected window: \(selectedWindow.appName) - \(selectedWindow.id)")
+                                    self.focusWindow(id: "\(selectedWindow.id)", workspace: selectedWindow.workspace)
+                                }
+                            }
+                        }
+                        
                         self.overlayController.updateMouseOffset(CGSize.zero)
                         self.overlayController.setIndicatorIcon(nil as String?)
                         self.overlayController.hide()
@@ -414,6 +438,7 @@ class MouseMonitor: ObservableObject {
                     } else if offset.height > expandThreshold { // Vertical DOWN focus (Expand Zone)
                         if pendingGesture != .expand {
                             pendingGesture = .expand
+                            
                             DispatchQueue.main.async {
                                 self.overlayController.setExpanded(true)
                                 self.overlayController.setBadgeProgress(0) // FORCE HIDE
@@ -587,12 +612,77 @@ class MouseMonitor: ObservableObject {
         }
     }
     
+    private func focusWindow(id: String, workspace: String? = nil) {
+        let aerospacePath = "/opt/homebrew/bin/aerospace"
+        
+        func runCommand(_ args: [String]) -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: aerospacePath)
+            process.arguments = args
+            var env = ProcessInfo.processInfo.environment
+            env["AEROSPACE_WINDOW_ID"] = "null"
+            env["AEROSPACE_WORKSPACE"] = "null"
+            process.environment = env
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            } catch {
+                return false
+            }
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            print("DEBUG: Attempting to focus window \(id)...")
+            if runCommand(["focus", "--window-id", id]) {
+                print("DEBUG: Successfully focused window \(id)")
+            } else if let ws = workspace {
+                print("DEBUG: Window focus failed. Falling back to workspace \(ws)")
+                if runCommand(["workspace", ws]) {
+                    print("DEBUG: Successfully switched to workspace \(ws)")
+                    // Refresh current workspace name
+                    self.fetchCurrentWorkspace()
+                }
+            }
+        }
+    }
+    
     private func convertPoint(_ cgPoint: CGPoint) -> CGPoint {
         if let mainScreen = NSScreen.screens.first {
             let screenHeight = mainScreen.frame.height
             return CGPoint(x: cgPoint.x, y: screenHeight - cgPoint.y)
         }
         return cgPoint
+    }
+    
+    private func fetchWindows() {
+        print("DEBUG: Fetching AeroSpace windows...")
+        let executablePath = "/opt/homebrew/bin/aerospace"
+        guard FileManager.default.fileExists(atPath: executablePath) else { return }
+        
+        DispatchQueue.global().async {
+            let process = Process()
+            let pipe = Pipe()
+            
+            var env = ProcessInfo.processInfo.environment
+            env["AEROSPACE_WINDOW_ID"] = "null"
+            env["AEROSPACE_WORKSPACE"] = "null"
+            process.environment = env
+            
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = ["list-windows", "--all", "--json", "--format", "%{window-id} %{app-name} %{window-title} %{workspace}"]
+            process.standardOutput = pipe
+            
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let windows: [WindowInfo] = try JSONDecoder().decode([WindowInfo].self, from: data)
+                print("DEBUG: Fetched \(windows.count) windows")
+                self.overlayController.setWindows(windows)
+            } catch {
+                print("ERROR: Failed to fetch windows: \(error.localizedDescription)")
+            }
+        }
     }
     
     deinit {
