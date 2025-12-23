@@ -8,6 +8,7 @@ class RingViewModel: ObservableObject {
     @Published var opacity: Double = 0.0
     @Published var workspaceName: String = "1"
     @Published var mouseOffset: CGSize = .zero
+    @Published var hoveredWindowId: Int? = nil // For visual feedback
     @Published var indicatorIcon: String? = nil
     @Published var badgeOpacity: Double = 0.0
     @Published var badgeOffset: CGFloat = 0.0
@@ -138,6 +139,14 @@ class RingViewModel: ObservableObject {
             }
         }
     }
+    
+    func setHoveredWindow(_ id: Int?) {
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                self.hoveredWindowId = id
+            }
+        }
+    }
 }
 
 struct RingView: View {
@@ -183,7 +192,11 @@ struct RingView: View {
                 ZStack {
                     if viewModel.isExpanded {
                         ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
-                            WindowBubbleBackground(index: index, totalCount: min(viewModel.windows.count, 12))
+                            WindowBubbleBackground(
+                                index: index,
+                                totalCount: min(viewModel.windows.count, 12),
+                                isHovered: viewModel.hoveredWindowId == window.id
+                            )
                         }
                     }
                 }
@@ -193,7 +206,12 @@ struct RingView: View {
                     // Window Titles & App Names
                     if viewModel.isExpanded {
                         ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
-                            WindowBubbleContent(window: window, index: index, totalCount: min(viewModel.windows.count, 12))
+                            WindowBubbleContent(
+                                window: window,
+                                index: index,
+                                totalCount: min(viewModel.windows.count, 12),
+                                isHovered: viewModel.hoveredWindowId == window.id
+                            )
                         }
                     }
                     
@@ -238,6 +256,7 @@ struct RingView: View {
 struct WindowBubbleBackground: View {
     let index: Int
     let totalCount: Int
+    let isHovered: Bool
     
     var body: some View {
         let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
@@ -251,7 +270,9 @@ struct WindowBubbleBackground: View {
 //            .clipShape(Circle())
             .glassEffect()
             .frame(width: 80, height: 80)
+            .scaleEffect(isHovered ? 1.2 : 1.0)
             .offset(x: offsetX, y: offsetY)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
             .transition(.scale.combined(with: .opacity))
     }
 }
@@ -260,6 +281,7 @@ struct WindowBubbleContent: View {
     let window: WindowInfo
     let index: Int
     let totalCount: Int
+    let isHovered: Bool
     
     var body: some View {
         let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
@@ -281,7 +303,9 @@ struct WindowBubbleContent: View {
                     .frame(maxWidth: 60)
             }
         }
+        .scaleEffect(isHovered ? 1.2 : 1.0)
         .offset(x: offsetX, y: offsetY)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
         .transition(.scale.combined(with: .opacity))
     }
 }
@@ -421,6 +445,10 @@ class OverlayWindowController {
     
     func setWindows(_ windows: [WindowInfo]) {
         viewModel.setWindows(windows)
+    }
+    
+    func setHoveredWindow(_ id: Int?) {
+        viewModel.setHoveredWindow(id)
     }
     
     var hasWindows: Bool {

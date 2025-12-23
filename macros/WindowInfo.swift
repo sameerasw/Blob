@@ -4,7 +4,7 @@ struct WindowInfo: Identifiable, Decodable {
     let id: Int
     let appName: String
     let title: String
-    let workspace: String
+    let workspace: String?
     
     enum CodingKeys: String, CodingKey {
         case id = "window-id"

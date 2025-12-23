@@ -51,6 +51,7 @@ class MouseMonitor: ObservableObject {
     private var actionTriggered: Bool = false
     private let swallowSourceID: Int64 = 777
     private var windowsFetchedThisSession = false
+    private var isInteractiveMode = false
     
     // Trackers for press duration and action consumption
     
@@ -170,6 +171,7 @@ class MouseMonitor: ObservableObject {
         eventMask |= (1 << CGEventType.otherMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.mouseMoved.rawValue)
         eventMask |= (1 << CGEventType.scrollWheel.rawValue)
+        eventMask |= (1 << CGEventType.leftMouseDown.rawValue)
         
         let observer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         
@@ -200,6 +202,38 @@ class MouseMonitor: ObservableObject {
         // PREVENT FEEDBACK LOOP: If this is our re-posted event, pass it through
         if event.getIntegerValueField(.eventSourceUserData) == swallowSourceID {
             return Unmanaged.passRetained(event)
+        }
+
+        // Handle Left Click for Window Selection (Interactive Mode)
+        if type == .leftMouseDown {
+            if isInteractiveMode {
+                let location = self.convertPoint(event.location)
+                if let trigger = triggerPoint {
+                    let offset = CGSize(
+                        width: location.x - trigger.x,
+                        height: -(location.y - trigger.y)
+                    )
+                    
+                    // Check if clicked ON a window bubble
+                    if let selectedWindow = self.overlayController.windowAtOffset(offset) {
+                        print("DEBUG: Interactive Click on Window: \(selectedWindow.appName)")
+                        self.focusWindow(id: "\(selectedWindow.id)", workspace: selectedWindow.workspace)
+                    } else {
+                        print("DEBUG: Interactive Click Outside - Dismissing")
+                    }
+                    
+                    // Dismiss overlay in both cases
+                    DispatchQueue.main.async {
+                        self.isInteractiveMode = false
+                        self.triggerPoint = nil // Reset trigger
+                        self.overlayController.updateMouseOffset(CGSize.zero)
+                        self.overlayController.setIndicatorIcon(nil as String?)
+                        self.overlayController.setHoveredWindow(nil)
+                        self.overlayController.hide()
+                    }
+                }
+                return nil // Consume the click
+            }
         }
 
         // Handle Scroll Events
@@ -318,6 +352,15 @@ class MouseMonitor: ObservableObject {
                     let duration = Date().timeIntervalSince(mouseDownTime ?? Date())
                     print("DEBUG: Hiding overlay. Duration: \(duration). Action Triggered: \(actionTriggered)")
                     
+                    // IF EXPANDED: Enter Interactive Mode instead of hiding
+                    if pendingGesture == .expand {
+                        print("DEBUG: Entering Interactive Mode (Expanded)")
+                        isInteractiveMode = true
+                         // DO NOT Clear triggerPoint or pendingGesture yet
+                        return nil // Swallow Mouse Up
+                    }
+                    
+                    let currentTriggerPoint = self.triggerPoint
                     self.triggerPoint = nil
                     
                     // Trigger pending gesture or final workspace switch on hide
@@ -325,28 +368,14 @@ class MouseMonitor: ObservableObject {
                     self.pendingGesture = nil
                     
                     DispatchQueue.main.async {
-                        // Check for window selection before hiding
-                        if self.pendingGesture == .expand {
-                            if let trigger = self.triggerPoint {
-                                let offset = CGSize(
-                                    width: location.x - trigger.x,
-                                    height: -(location.y - trigger.y)
-                                )
-                                if let selectedWindow = self.overlayController.windowAtOffset(offset) {
-                                    print("DEBUG: Selected window: \(selectedWindow.appName) - \(selectedWindow.id)")
-                                    self.focusWindow(id: "\(selectedWindow.id)", workspace: selectedWindow.workspace)
-                                }
-                            }
-                        }
-                        
                         self.overlayController.updateMouseOffset(CGSize.zero)
                         self.overlayController.setIndicatorIcon(nil as String?)
                         self.overlayController.hide()
                     }
                     
-                    if let gesture = gestureToFire, gesture != .scroll {
+                    if let gesture = gestureToFire, gesture != .scroll && gesture != .expand {
                         triggerWorkspaceGesture(direction: gesture)
-                    } else if let initial = initialWorkspace, currentWorkspace != initial {
+                    } else if gestureToFire != .expand, let initial = initialWorkspace, currentWorkspace != initial {
                         // Regular scroll-based switch
                         print("DEBUG: Workspace changed via scroll. Running AeroSpace command.")
                         runAeroSpaceCommand(for: currentWorkspace)
@@ -404,10 +433,20 @@ class MouseMonitor: ObservableObject {
                 if (pendingGesture == .expand || isMovingDown) {
                     DispatchQueue.main.async {
                         self.overlayController.setBadgeProgress(0)
+                        
+                        // Check for hover if already expanded
+                        if self.pendingGesture == .expand {
+                            if let window = self.overlayController.windowAtOffset(offset) {
+                                self.overlayController.setHoveredWindow(window.id)
+                            } else {
+                                self.overlayController.setHoveredWindow(nil)
+                            }
+                        }
                     }
                 } else {
                     DispatchQueue.main.async {
                         self.overlayController.setBadgeProgress(progress)
+                        self.overlayController.setHoveredWindow(nil)
                     }
                 }
 
@@ -447,11 +486,13 @@ class MouseMonitor: ObservableObject {
                         }
                     }
                 } else if distance < 30 { // Closer reset for expansion specifically
-                    if pendingGesture == .expand {
+                    // Only reset if NOT in interactive mode
+                    if pendingGesture == .expand && !isInteractiveMode {
                         pendingGesture = nil
                         DispatchQueue.main.async {
                             self.overlayController.setExpanded(false)
                             self.overlayController.setIndicatorIcon(nil as String?)
+                            self.overlayController.setHoveredWindow(nil)
                         }
                     }
                 } else if distance < resetThreshold {
@@ -619,30 +660,57 @@ class MouseMonitor: ObservableObject {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: aerospacePath)
             process.arguments = args
+            
+            // Standard environment setup
             var env = ProcessInfo.processInfo.environment
             env["AEROSPACE_WINDOW_ID"] = "null"
             env["AEROSPACE_WORKSPACE"] = "null"
             process.environment = env
+            
+            let pipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = errorPipe
+            
             do {
                 try process.run()
                 process.waitUntilExit()
-                return process.terminationStatus == 0
+                
+                if process.terminationStatus != 0 {
+                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+                    print("ERROR: AeroSpace command '\(args)' failed: \(errorOutput)")
+                    return false
+                }
+                return true
             } catch {
+                print("ERROR: Failed to run AeroSpace command '\(args)': \(error)")
                 return false
             }
         }
         
         DispatchQueue.global(qos: .userInitiated).async {
-            print("DEBUG: Attempting to focus window \(id)...")
-            if runCommand(["focus", "--window-id", id]) {
-                print("DEBUG: Successfully focused window \(id)")
-            } else if let ws = workspace {
-                print("DEBUG: Window focus failed. Falling back to workspace \(ws)")
+            print("DEBUG: Processing selection for window \(id)...")
+            
+            // User requested check: "switch to that window's workspace instead"
+            // Prioritize workspace switch if available
+            if let ws = workspace {
+                print("DEBUG: Switching to workspace \(ws) for window \(id)")
                 if runCommand(["workspace", ws]) {
                     print("DEBUG: Successfully switched to workspace \(ws)")
-                    // Refresh current workspace name
                     self.fetchCurrentWorkspace()
+                    // Still try to focus the window *after* switching workspace, just in case
+                     _ = runCommand(["focus", "--window-id", id])
+                    return
                 }
+            }
+            
+            // Fallback: Try direct window focus if workspace switch failed or wasn't possible
+            print("DEBUG: Attempting direct window focus for \(id)...")
+            if runCommand(["focus", "--window-id", id]) {
+                print("DEBUG: Successfully focused window \(id)")
+            } else {
+                print("DEBUG: Failed to focus window \(id) and no valid workspace switch occurred.")
             }
         }
     }
