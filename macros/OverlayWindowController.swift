@@ -14,11 +14,15 @@ class RingViewModel: ObservableObject {
     @Published var hOffset: CGFloat = 0.0 // For gravitational shake
     @Published var scrollDirection: Int = 0 // For transition direction
     @Published var isExpanded: Bool = false
+    @Published var isAtCenter: Bool = true
     
     func show() {
         // Reset badge state
         badgeOpacity = 0.0
         badgeOffset = 0.0
+        isAtCenter = true
+        indicatorIcon = nil
+        isExpanded = false
         
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
             isVisible = true
@@ -106,10 +110,36 @@ class RingViewModel: ObservableObject {
             }
         }
     }
+    
+    func setBadgeProgress(_ progress: CGFloat) {
+        DispatchQueue.main.async {
+            // If moved enough, we are no longer "at center"
+            if progress > 0.1 {
+                self.isAtCenter = false
+            } else if progress == 0 {
+                self.isAtCenter = true
+            }
+            
+            // Smother jitter with a very responsive spring
+            withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.8)) {
+                self.badgeOpacity = Double(progress)
+                self.badgeOffset = -55 * progress
+            }
+        }
+    }
 }
 
 struct RingView: View {
     @ObservedObject var viewModel: RingViewModel
+    
+    private var shouldShowBadge: Bool {
+        guard let icon = viewModel.indicatorIcon else { return false }
+        if viewModel.isExpanded { return false }
+        
+        // Exclude icons that shouldn't show the workspace name (downward/expansion)
+        let excludedIcons = ["arrow.down", "plus.circle.fill"]
+        return !excludedIcons.contains(icon)
+    }
     
     var body: some View {
         ZStack {
@@ -122,24 +152,25 @@ struct RingView: View {
                             .glassEffect(.regular)
                             .frame(width: viewModel.isExpanded ? 160 : 80, height: viewModel.isExpanded ? 160 : 80)
                         
-                        ZStack {
-                            Text(viewModel.workspaceName)
-                                .id(viewModel.workspaceName)
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(.primary)
-                                .opacity(viewModel.isExpanded ? 0 : 1) // EXTRA VIEW LEVEL HIDE
-                                .transition(
-                                    .asymmetric(
-                                        insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
-                                        removal: .move(edge: viewModel.scrollDirection > 0 ? .leading : .trailing)
-                                    ).combined(with: .opacity)
-                                )
+                        if shouldShowBadge {
+                            ZStack {
+                                Text(viewModel.workspaceName)
+                                    .id(viewModel.workspaceName)
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .transition(
+                                        .asymmetric(
+                                            insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
+                                            removal: .move(edge: viewModel.scrollDirection > 0 ? .leading : .trailing)
+                                        ).combined(with: .opacity)
+                                    )
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .glassEffect()
+                            .opacity(viewModel.badgeOpacity) 
+                            .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .glassEffect()
-                        .opacity(viewModel.isExpanded ? 0 : viewModel.badgeOpacity) // HARD HIDE WHEN EXPANDED
-                        .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
                     }
                     
                     // Mouse Pointer Circle (Following the cursor)
@@ -245,5 +276,9 @@ class OverlayWindowController {
     
     func setExpanded(_ expanded: Bool) {
         viewModel.setExpanded(expanded)
+    }
+    
+    func setBadgeProgress(_ progress: CGFloat) {
+        viewModel.setBadgeProgress(progress)
     }
 }

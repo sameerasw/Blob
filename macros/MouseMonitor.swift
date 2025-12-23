@@ -369,26 +369,22 @@ class MouseMonitor: ObservableObject {
                 let resetThreshold: CGFloat = 80 // Distance to "clear/reset"
                 let badgeThreshold: CGFloat = 60 // Distance to show workspace name
                 
-                if distance > badgeThreshold {
-                    actionTriggered = true // Marking as action since user is exploring HUD
-                    
-                    // ONLY SHOW BADGE IF:
-                    // 1. Not in expanded mode
-                    // 2. Not moving primarily DOWN (to avoid flicker before expansion)
-                    let isMovingDown = offset.height > 40 && abs(offset.height) > abs(offset.width)
-                    
-                    if pendingGesture != .expand && !isMovingDown {
-                        DispatchQueue.main.async {
-                            self.overlayController.setBadgeVisible(true)
-                        }
-                    } else {
-                        DispatchQueue.main.async {
-                            self.overlayController.setBadgeVisible(false) // HIDE IN EXPANDED MODE or DOWN MOVEMENT
-                        }
-                    }
-                } else if distance < 30 {
+                // Calculation for interactive badge fade
+                // Fade from distance 40 (edge of inner circle) to 80 (reset threshold)
+                let progress = max(0, min(1, (distance - 40) / 40))
+                let isMovingDown = offset.height > 40 && abs(offset.height) > abs(offset.width)
+                
+                if distance > 40 {
+                    actionTriggered = true // Marking as action since user is moving away from center
+                }
+                
+                if (pendingGesture == .expand || isMovingDown) {
                     DispatchQueue.main.async {
-                        self.overlayController.setBadgeVisible(false)
+                        self.overlayController.setBadgeProgress(0)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.overlayController.setBadgeProgress(progress)
                     }
                 }
 
@@ -421,7 +417,7 @@ class MouseMonitor: ObservableObject {
                             pendingGesture = .expand
                             DispatchQueue.main.async {
                                 self.overlayController.setExpanded(true)
-                                self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN
+                                self.overlayController.setBadgeProgress(0) // FORCE HIDE
                                 self.overlayController.setIndicatorIcon("plus.circle.fill")
                             }
                         }
