@@ -145,6 +145,12 @@ struct RingView: View {
     
     var body: some View {
         ZStack {
+            // Full-screen dimming background
+            Color.black
+                .opacity(viewModel.isExpanded ? 0.5 : 0.0)
+                .edgesIgnoringSafeArea(.all)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.isExpanded)
+            
             ZStack {
                 GlassEffectContainer {
                 ZStack {
