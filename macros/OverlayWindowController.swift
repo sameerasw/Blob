@@ -15,14 +15,16 @@ class RingViewModel: ObservableObject {
     @Published var scrollDirection: Int = 0 // For transition direction
     @Published var isExpanded: Bool = false
     @Published var isAtCenter: Bool = true
+    @Published var triggerPoint: CGPoint = .zero
     
-    func show() {
-        // Reset badge state
-        badgeOpacity = 0.0
-        badgeOffset = 0.0
-        isAtCenter = true
-        indicatorIcon = nil
-        isExpanded = false
+    func show(at point: CGPoint) {
+        // Reset state
+        self.triggerPoint = point
+        self.badgeOpacity = 0.0
+        self.badgeOffset = 0.0
+        self.isAtCenter = true
+        self.indicatorIcon = nil
+        self.isExpanded = false
         
         withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
             isVisible = true
@@ -143,7 +145,8 @@ struct RingView: View {
     
     var body: some View {
         ZStack {
-            GlassEffectContainer {
+            ZStack {
+                GlassEffectContainer {
                 ZStack {
                     // Main Stationary Macro (Centered in the 600x600 container)
                     ZStack {
@@ -179,23 +182,24 @@ struct RingView: View {
                         .glassEffect(.regular)
                         .frame(width: 30, height: 30)
                         .offset(viewModel.mouseOffset)
+                    }
+                }
+                
+                if let icon = viewModel.indicatorIcon {
+                    Image(systemName: icon)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 5)
+                        .transition(.scale.combined(with: .opacity))
+                        .zIndex(1000)
+                        .id(icon)
                 }
             }
-            
-            // Gesture Indicator Icon (Absolute Top Layer, outside glass container)
-            if let icon = viewModel.indicatorIcon {
-                Image(systemName: icon)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.3), radius: 5)
-                    .transition(.scale.combined(with: .opacity))
-                    .zIndex(1000)
-                    .id(icon)
-            }
+            .scaleEffect(viewModel.scale)
+            .opacity(viewModel.opacity)
+            .frame(width: 2000, height: 2000)
+            .position(viewModel.triggerPoint) // Position HUD at trigger point on full-screen canvas
         }
-        .scaleEffect(viewModel.scale)
-        .opacity(viewModel.opacity)
-        .frame(width: 600, height: 600)
     }
 }
 
@@ -209,8 +213,9 @@ class OverlayWindowController {
     }
     
     private func setupWindow() {
+        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 1440)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: windowSize, height: windowSize),
+            contentRect: screenFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -235,14 +240,21 @@ class OverlayWindowController {
         print("DEBUG: WindowController.show(at: \(point))")
         guard let window = window else { return }
         
-        let x = point.x - (windowSize / 2)
-        let y = point.y - (windowSize / 2)
+        // Match current screen
+        if let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) ?? NSScreen.main {
+            window.setFrame(screen.frame, display: true)
+            
+            // Adjust point for window-local coordinates
+            // AppKit (point) is bottom-left, SwiftUI (viewModel) is top-left
+            let localPoint = CGPoint(
+                x: point.x - screen.frame.origin.x,
+                y: screen.frame.height - (point.y - screen.frame.origin.y)
+            )
+            viewModel.show(at: localPoint)
+        }
         
-        window.setFrameOrigin(NSPoint(x: x, y: y))
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        
-        viewModel.show()
     }
     
     func hide() {
@@ -253,9 +265,7 @@ class OverlayWindowController {
     }
     
     func updatePosition(to point: CGPoint) {
-        let x = point.x - (windowSize / 2)
-        let y = point.y - (windowSize / 2)
-        window?.setFrameOrigin(NSPoint(x: x, y: y))
+        // Full screen window doesn't move
     }
     
     func updateMouseOffset(_ offset: CGSize) {
