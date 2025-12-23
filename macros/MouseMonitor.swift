@@ -52,6 +52,7 @@ class MouseMonitor: ObservableObject {
     private let swallowSourceID: Int64 = 777
     private var windowsFetchedThisSession = false
     private var isInteractiveMode = false
+    private var clearIndicatorTimer: Timer?
     
     // Trackers for press duration and action consumption
     
@@ -249,80 +250,106 @@ class MouseMonitor: ObservableObject {
 
         // Handle Scroll Events
         if type == .scrollWheel {
-            if isButton5Down {
-                // Determine direction based on raw delta
-                var delta = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
-                if delta == 0 {
-                    delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-                }
-                
-                // RESTRICT SCROLL: Only allow if mouse is moved UP far enough
+            if isButton5Down || isInteractiveMode {
                 let location = self.convertPoint(event.location)
                 if let trigger = triggerPoint {
-                    let offsetY = -(location.y - trigger.y)
+                    let offset = CGSize(
+                        width: location.x - trigger.x,
+                        height: -(location.y - trigger.y)
+                    )
+                    let dist = sqrt(offset.width * offset.width + offset.height * offset.height)
                     
-                    // IF EXPANDED: Disable workspace switching scroll zone
-                    if pendingGesture == .expand {
-                        let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-                        let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                    // CENTER HUB SCROLL: Volume Control (Only in expanded/interactive mode)
+                    if dist < 80 && (pendingGesture == .expand || isInteractiveMode) {
+                        var delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                        if delta == 0 {
+                            delta = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
+                        }
                         
-                        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
-                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
-                        
-                        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
-                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
-                        
-                        return Unmanaged.passRetained(event)
+                        if delta != 0 {
+                            adjustVolume(delta: delta)
+                            actionTriggered = true
+                        }
+                        return nil // Consume scroll
                     }
+                }
+                
+                // Continue with regular workspace switching scroll if button 5 is held
+                if isButton5Down {
+                    // Determine direction based on raw delta
+                    var delta = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
+                    if delta == 0 {
+                        delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                    }
+                    
+                    // RESTRICT SCROLL: Only allow if mouse is moved UP far enough
+                    let location = self.convertPoint(event.location)
+                    if let trigger = triggerPoint {
+                        let offsetY = -(location.y - trigger.y)
+                        
+                        // IF EXPANDED: Disable workspace switching scroll zone
+                        if pendingGesture == .expand {
+                            let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                            let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                            
+                            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
+                            event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
+                            
+                            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+                            event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+                            
+                            return Unmanaged.passRetained(event)
+                        }
 
-                    // If mouse is not far enough UP (beyond threshold), convert to horizontal scroll
-                    if offsetY > -100 { // UP is negative offsetY
-                        let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-                        let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-                        
-                        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
-                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
-                        
-                        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
-                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
-                        
-                        return Unmanaged.passRetained(event)
-                    } else {
-                        // In workspace switching zone - ensure badge is visible
-                        actionTriggered = true // MARK AS ACTION TAKEN
-                        DispatchQueue.main.async {
-                            self.overlayController.setBadgeVisible(true)
+                        // If mouse is not far enough UP (beyond threshold), convert to horizontal scroll
+                        if offsetY > -100 { // UP is negative offsetY
+                            let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                            let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                            
+                            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
+                            event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
+                            
+                            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+                            event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+                            
+                            return Unmanaged.passRetained(event)
+                        } else {
+                            // In workspace switching zone - ensure badge is visible
+                            actionTriggered = true // MARK AS ACTION TAKEN
+                            DispatchQueue.main.async {
+                                self.overlayController.setBadgeVisible(true)
+                            }
                         }
                     }
-                }
-                
-                // Converting to horizontal scroll or switching workspace counts as action
-                actionTriggered = true
-                
-                if reverseScroll {
-                    delta = -delta
-                }
-                
-                scrollAccumulator += (delta / scrollSensitivity)
-                
-                if abs(scrollAccumulator) >= 1.0 {
-                    let steps = Int(floor(abs(scrollAccumulator)))
-                    let direction = scrollAccumulator > 0 ? 1 : -1
                     
-                    // Cycle through workspace names
-                    if let currentIndex = workspaces.firstIndex(of: currentWorkspace) {
-                        let newIndex = currentIndex + (steps * direction)
-                        let clampedIndex = max(0, min(newIndex, workspaces.count - 1))
-                        currentWorkspace = workspaces[clampedIndex]
+                    // Converting to horizontal scroll or switching workspace counts as action
+                    actionTriggered = true
+                    
+                    if reverseScroll {
+                        delta = -delta
                     }
                     
-                    scrollAccumulator -= Double(steps * direction)
+                    scrollAccumulator += (delta / scrollSensitivity)
                     
-                    DispatchQueue.main.async {
-                        self.overlayController.setWorkspaceName(self.currentWorkspace, direction: direction)
+                    if abs(scrollAccumulator) >= 1.0 {
+                        let steps = Int(floor(abs(scrollAccumulator)))
+                        let direction = scrollAccumulator > 0 ? 1 : -1
+                        
+                        // Cycle through workspace names
+                        if let currentIndex = workspaces.firstIndex(of: currentWorkspace) {
+                            let newIndex = currentIndex + (steps * direction)
+                            let clampedIndex = max(0, min(newIndex, workspaces.count - 1))
+                            currentWorkspace = workspaces[clampedIndex]
+                        }
+                        
+                        scrollAccumulator -= Double(steps * direction)
+                        
+                        DispatchQueue.main.async {
+                            self.overlayController.setWorkspaceName(self.currentWorkspace, direction: direction)
+                        }
                     }
+                    return nil // Consume
                 }
-                return nil // Consume
             }
         }
         
@@ -372,6 +399,8 @@ class MouseMonitor: ObservableObject {
                             self.fetchWindows()
                         }
                         
+                        // Fetch initial volume
+                        self.fetchSystemVolume()
                         self.overlayController.show(at: point)
                     }
                     return nil // SWALLOW MOUSE DOWN
@@ -687,8 +716,40 @@ class MouseMonitor: ObservableObject {
         self.triggerPoint = nil
         self.overlayController.updateMouseOffset(CGSize.zero)
         self.overlayController.setIndicatorIcon(nil as String?)
-        self.overlayController.setHoveredWindow(nil)
+        self.overlayController.setHoveredWindow(nil as Int?)
         self.overlayController.hide()
+    }
+
+    private func adjustVolume(delta: Double) {
+        // volumeStep is typically small (e.g., 5%).
+        let volumeStep = delta > 0 ? 5 : -5
+        let script = "set volume output volume (output volume of (get volume settings) + \(volumeStep))"
+        let appleScript = NSAppleScript(source: script)
+        appleScript?.executeAndReturnError(nil)
+        
+        fetchSystemVolume()
+        
+        // Update HUD feedback
+        DispatchQueue.main.async {
+            self.overlayController.setIndicatorIcon("speaker.wave.3.fill")
+            self.clearIndicatorTimer?.invalidate()
+            self.clearIndicatorTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                self.overlayController.setIndicatorIcon(nil)
+            }
+        }
+    }
+
+    private func fetchSystemVolume() {
+        let getVolumeScript = "output volume of (get volume settings)"
+        let getVolumeAppleScript = NSAppleScript(source: getVolumeScript)
+        var volume: Int = 0
+        if let output = getVolumeAppleScript?.executeAndReturnError(nil) {
+            volume = Int(output.int32Value)
+        }
+        
+        DispatchQueue.main.async {
+            self.overlayController.viewModel.volumeLevel = Double(volume) / 100.0
+        }
     }
 
     private func focusWindow(id: String, workspace: String? = nil) {

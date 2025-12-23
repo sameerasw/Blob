@@ -22,6 +22,7 @@ class RingViewModel: ObservableObject {
     
     // Grouping Mode
     @Published var isWorkspaceGrouped: Bool = UserDefaults.standard.bool(forKey: "isWorkspaceGrouped")
+    @Published var volumeLevel: Double = 0.5 // 0.0 to 1.0
 
     func toggleGrouping() {
         isWorkspaceGrouped.toggle()
@@ -232,6 +233,19 @@ struct RingView: View {
                                 }
                             }
                         
+                        // Volume Progress Ring
+                        if viewModel.indicatorIcon == "speaker.wave.3.fill" && viewModel.isExpanded {
+                            Circle()
+                                .trim(from: 0, to: viewModel.volumeLevel)
+                                .stroke(
+                                    LinearGradient(colors: [.white.opacity(0.9), .white.opacity(0.5)], startPoint: .top, endPoint: .bottom),
+                                    style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                                )
+                                .frame(width: 148, height: 148)
+                                .rotationEffect(.degrees(-90))
+                                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: viewModel.volumeLevel)
+                        }
+                        
                         // Tracker Circle
                         Circle()
                             .stroke(Color.white.opacity(0.1), lineWidth: 0)
@@ -292,12 +306,21 @@ struct RingView: View {
                     
                     // Action Icon (Center)
                     if let icon = viewModel.indicatorIcon {
-                        Image(systemName: icon)
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundColor(.white)
-                            .shadow(color: .black.opacity(0.3), radius: 5)
-                            .id(icon)
-                            .transition(.scale.combined(with: .opacity))
+                        VStack(spacing: 8) {
+                            Image(systemName: icon)
+                                .font(.system(size: 30, weight: .bold))
+                            
+                            if icon == "speaker.wave.3.fill" {
+                                Text("\(Int(viewModel.volumeLevel * 100))%")
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .transition(.scale.combined(with: .opacity))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 5)
+                        .id(icon)
+                        .transition(.scale.combined(with: .opacity))
+                        .animation(.spring(), value: viewModel.volumeLevel)
                     }
                     
                     // Removed toggle button from here
