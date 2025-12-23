@@ -322,6 +322,23 @@ class MouseMonitor: ObservableObject {
             if buttonNumber == targetButtonNumber {
                 let location = event.location // Use raw screen location for re-posting
                 if type == .otherMouseDown {
+                    // TOGGLE LOGIC: If already in interactive mode, close it
+                    if isInteractiveMode {
+                        print("DEBUG: Toggling Interactive Mode OFF")
+                        isInteractiveMode = false
+                        triggerPoint = nil
+                        pendingGesture = nil
+                        initialWorkspace = nil
+                        
+                        DispatchQueue.main.async {
+                            self.overlayController.updateMouseOffset(CGSize.zero)
+                            self.overlayController.setIndicatorIcon(nil as String?)
+                            self.overlayController.setHoveredWindow(nil)
+                            self.overlayController.hide()
+                        }
+                        return nil // Swallow the toggle-off click
+                    }
+                    
                     isButton5Down = true
                     mouseDownTime = Date()
                     actionTriggered = false
