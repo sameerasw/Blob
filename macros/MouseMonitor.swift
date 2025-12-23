@@ -394,10 +394,8 @@ class MouseMonitor: ObservableObject {
                         self.overlayController.setWorkspaceName(self.currentWorkspace)
                         self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN AT START
                         
-                        // Re-use windows: only fetch if empty
-                        if !self.overlayController.hasWindows {
-                            self.fetchWindows()
-                        }
+                        // Always fetch windows on start to ensure they are ready, but we'll also refresh on expand
+                        self.fetchWindows()
                         
                         // Fetch initial volume
                         self.fetchSystemVolume()
@@ -533,6 +531,9 @@ class MouseMonitor: ObservableObject {
                     } else if offset.height > expandThreshold { // Vertical DOWN focus (Expand Zone)
                         if pendingGesture != .expand {
                             pendingGesture = .expand
+                            
+                            // FORCE REFRESH windows when expanding
+                            self.fetchWindows()
                             
                             DispatchQueue.main.async {
                                 self.overlayController.setExpanded(true)
