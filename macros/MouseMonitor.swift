@@ -45,6 +45,11 @@ class MouseMonitor: ObservableObject {
     private var triggerPoint: CGPoint?
     private var pendingGesture: GestureDirection?
     
+    // Input Consumption State
+    private var mouseDownTime: Date?
+    private var actionTriggered: Bool = false
+    private let swallowSourceID: Int64 = 777
+    
     init() {
         // Load persisted settings
         self.reverseScroll = UserDefaults.standard.bool(forKey: reverseScrollKey)
@@ -188,6 +193,11 @@ class MouseMonitor: ObservableObject {
     }
     
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // PREVENT FEEDBACK LOOP: If this is our re-posted event, pass it through
+        if event.getIntegerValueField(.eventSourceUserData) == swallowSourceID {
+            return Unmanaged.passRetained(event)
+        }
+
         // Handle Scroll Events
         if type == .scrollWheel {
             if isButton5Down {
@@ -215,11 +225,15 @@ class MouseMonitor: ObservableObject {
                         return Unmanaged.passRetained(event)
                     } else {
                         // In workspace switching zone - ensure badge is visible
+                        actionTriggered = true // MARK AS ACTION TAKEN
                         DispatchQueue.main.async {
                             self.overlayController.setBadgeVisible(true)
                         }
                     }
                 }
+                
+                // Converting to horizontal scroll or switching workspace counts as action
+                actionTriggered = true
                 
                 if reverseScroll {
                     delta = -delta
@@ -253,9 +267,11 @@ class MouseMonitor: ObservableObject {
             let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
             
             if buttonNumber == targetButtonNumber {
-                let location = event.location
+                let location = event.location // Use raw screen location for re-posting
                 if type == .otherMouseDown {
                     isButton5Down = true
+                    mouseDownTime = Date()
+                    actionTriggered = false
                     
                     // ON-DEMAND SYNC: Fetch current workspace before showing
                     fetchCurrentWorkspace()
@@ -263,7 +279,7 @@ class MouseMonitor: ObservableObject {
                     initialWorkspace = currentWorkspace
                     scrollAccumulator = 0
                     
-                    print("DEBUG: Showing overlay at \(location). Current Workspace: \(currentWorkspace)")
+                    print("DEBUG: Showing overlay. Swallowing mouseDown.")
                     let point = self.convertPoint(location)
                     self.triggerPoint = point
                     DispatchQueue.main.async {
@@ -271,9 +287,12 @@ class MouseMonitor: ObservableObject {
                         self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN AT START
                         self.overlayController.show(at: point)
                     }
+                    return nil // SWALLOW MOUSE DOWN
                 } else {
                     isButton5Down = false
-                    print("DEBUG: Hiding overlay")
+                    let duration = Date().timeIntervalSince(mouseDownTime ?? Date())
+                    print("DEBUG: Hiding overlay. Duration: \(duration). Action Triggered: \(actionTriggered)")
+                    
                     self.triggerPoint = nil
                     
                     // Trigger pending gesture or final workspace switch on hide
@@ -290,10 +309,29 @@ class MouseMonitor: ObservableObject {
                         triggerWorkspaceGesture(direction: gesture)
                     } else if let initial = initialWorkspace, currentWorkspace != initial {
                         // Regular scroll-based switch
-                        print("DEBUG: Workspace changed via scroll from \(initial) to \(currentWorkspace). Running AeroSpace command.")
+                        print("DEBUG: Workspace changed via scroll. Running AeroSpace command.")
                         runAeroSpaceCommand(for: currentWorkspace)
+                    } else if !actionTriggered && duration < 1.0 {
+                        // NO ACTION and SHORT PRESS: Re-post the click
+                        print("DEBUG: Re-posting Button 5 Click")
+                        
+                        // Create Mouse Down
+                        if let downEvent = CGEvent(mouseEventSource: nil, mouseType: .otherMouseDown, mouseCursorPosition: location, mouseButton: .center) {
+                            downEvent.setIntegerValueField(.mouseEventButtonNumber, value: targetButtonNumber)
+                            downEvent.setIntegerValueField(.eventSourceUserData, value: swallowSourceID)
+                            downEvent.post(tap: .cgSessionEventTap)
+                        }
+                        
+                        // Create Mouse Up
+                        if let upEvent = CGEvent(mouseEventSource: nil, mouseType: .otherMouseUp, mouseCursorPosition: location, mouseButton: .center) {
+                            upEvent.setIntegerValueField(.mouseEventButtonNumber, value: targetButtonNumber)
+                            upEvent.setIntegerValueField(.eventSourceUserData, value: swallowSourceID)
+                            upEvent.post(tap: .cgSessionEventTap)
+                        }
                     }
+                    
                     initialWorkspace = nil
+                    return nil // SWALLOW MOUSE UP
                 }
             }
         } else if type == .otherMouseDragged || type == .mouseMoved {
@@ -316,6 +354,7 @@ class MouseMonitor: ObservableObject {
                 let badgeThreshold: CGFloat = 60 // Distance to show workspace name
                 
                 if distance > badgeThreshold {
+                    actionTriggered = true // Marking as action since user is exploring HUD
                     DispatchQueue.main.async {
                         self.overlayController.setBadgeVisible(true)
                     }
