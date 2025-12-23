@@ -213,6 +213,11 @@ class MouseMonitor: ObservableObject {
                         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
                         
                         return Unmanaged.passRetained(event)
+                    } else {
+                        // In workspace switching zone - ensure badge is visible
+                        DispatchQueue.main.async {
+                            self.overlayController.setBadgeVisible(true)
+                        }
                     }
                 }
                 
@@ -263,6 +268,7 @@ class MouseMonitor: ObservableObject {
                     self.triggerPoint = point
                     DispatchQueue.main.async {
                         self.overlayController.setWorkspaceName(self.currentWorkspace)
+                        self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN AT START
                         self.overlayController.show(at: point)
                     }
                 } else {
@@ -307,6 +313,17 @@ class MouseMonitor: ObservableObject {
                 let distance = sqrt(pow(offset.width, 2) + pow(offset.height, 2))
                 let exitThreshold: CGFloat = 160 // Distance to "select"
                 let resetThreshold: CGFloat = 80 // Distance to "clear/reset"
+                let badgeThreshold: CGFloat = 60 // Distance to show workspace name
+                
+                if distance > badgeThreshold {
+                    DispatchQueue.main.async {
+                        self.overlayController.setBadgeVisible(true)
+                    }
+                } else if distance < 30 {
+                    DispatchQueue.main.async {
+                        self.overlayController.setBadgeVisible(false)
+                    }
+                }
 
                 if distance > exitThreshold {
                     // Update pending gesture based on direction
@@ -315,8 +332,14 @@ class MouseMonitor: ObservableObject {
                         if pendingGesture != newGesture {
                             pendingGesture = newGesture
                             let icon = newGesture == .next ? "arrow.right.circle.fill" : "arrow.left.circle.fill"
-                            DispatchQueue.main.async {
-                                self.overlayController.setIndicatorIcon(icon)
+                            
+                            // PREVIEW TARGET WORKSPACE
+                            let direction = newGesture == .next ? 1 : -1
+                            if let targetWorkspace = self.workspaceAt(offset: direction) {
+                                DispatchQueue.main.async {
+                                    self.overlayController.setWorkspaceName(targetWorkspace, direction: direction)
+                                    self.overlayController.setIndicatorIcon(icon)
+                                }
                             }
                         }
                     } else if offset.height < -120 { // Vertical UP focus (Scroll Zone)
@@ -331,6 +354,7 @@ class MouseMonitor: ObservableObject {
                     if pendingGesture != nil {
                         pendingGesture = nil
                         DispatchQueue.main.async {
+                            self.overlayController.setWorkspaceName(self.currentWorkspace) // Reset to current
                             self.overlayController.setIndicatorIcon(nil as String?)
                         }
                     }
@@ -367,6 +391,13 @@ class MouseMonitor: ObservableObject {
     
     enum GestureDirection {
         case next, prev, scroll
+    }
+    
+    private func workspaceAt(offset: Int) -> String? {
+        guard let currentIndex = workspaces.firstIndex(of: currentWorkspace) else { return nil }
+        let count = workspaces.count
+        let newIndex = (currentIndex + offset + count) % count
+        return workspaces[newIndex]
     }
     
     private func triggerWorkspaceGesture(direction: GestureDirection) {

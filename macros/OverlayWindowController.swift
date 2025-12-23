@@ -24,14 +24,6 @@ class RingViewModel: ObservableObject {
             scale = 1.0
             opacity = 1.0
         }
-        
-        // Final badge animation after 0.5s delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                self.badgeOpacity = 1.0
-                self.badgeOffset = -55 // Target position
-            }
-        }
     }
     
     func hide(completion: @escaping () -> Void) {
@@ -87,6 +79,15 @@ class RingViewModel: ObservableObject {
         DispatchQueue.main.async {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                 self.indicatorIcon = icon
+            }
+        }
+    }
+    
+    func setBadgeVisible(_ visible: Bool) {
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                self.badgeOpacity = visible ? 1.0 : 0.0
+                self.badgeOffset = visible ? -55 : 0.0
             }
         }
     }
@@ -220,5 +221,9 @@ class OverlayWindowController {
     
     func setIndicatorIcon(_ icon: String?) {
         viewModel.setIndicatorIcon(icon)
+    }
+    
+    func setBadgeVisible(_ visible: Bool) {
+        viewModel.setBadgeVisible(visible)
     }
 }
