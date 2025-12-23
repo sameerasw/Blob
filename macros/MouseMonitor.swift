@@ -211,6 +211,21 @@ class MouseMonitor: ObservableObject {
                 let location = self.convertPoint(event.location)
                 if let trigger = triggerPoint {
                     let offsetY = -(location.y - trigger.y)
+                    
+                    // IF EXPANDED: Disable workspace switching scroll zone
+                    if pendingGesture == .expand {
+                        let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+                        let vDeltaFixed = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+                        
+                        event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: vDelta)
+                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: vDeltaFixed)
+                        
+                        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+                        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+                        
+                        return Unmanaged.passRetained(event)
+                    }
+
                     // If mouse is not far enough UP (beyond threshold), convert to horizontal scroll
                     if offsetY > -100 { // UP is negative offsetY
                         let vDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
@@ -350,13 +365,26 @@ class MouseMonitor: ObservableObject {
                 // Gesture Detection
                 let distance = sqrt(pow(offset.width, 2) + pow(offset.height, 2))
                 let exitThreshold: CGFloat = 160 // Distance to "select"
+                let expandThreshold: CGFloat = 80 // Distance to "expand"
                 let resetThreshold: CGFloat = 80 // Distance to "clear/reset"
                 let badgeThreshold: CGFloat = 60 // Distance to show workspace name
                 
                 if distance > badgeThreshold {
                     actionTriggered = true // Marking as action since user is exploring HUD
-                    DispatchQueue.main.async {
-                        self.overlayController.setBadgeVisible(true)
+                    
+                    // ONLY SHOW BADGE IF:
+                    // 1. Not in expanded mode
+                    // 2. Not moving primarily DOWN (to avoid flicker before expansion)
+                    let isMovingDown = offset.height > 40 && abs(offset.height) > abs(offset.width)
+                    
+                    if pendingGesture != .expand && !isMovingDown {
+                        DispatchQueue.main.async {
+                            self.overlayController.setBadgeVisible(true)
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.overlayController.setBadgeVisible(false) // HIDE IN EXPANDED MODE or DOWN MOVEMENT
+                        }
                     }
                 } else if distance < 30 {
                     DispatchQueue.main.async {
@@ -364,7 +392,7 @@ class MouseMonitor: ObservableObject {
                     }
                 }
 
-                if distance > exitThreshold {
+                if distance > exitThreshold && pendingGesture != .expand {
                     // Update pending gesture based on direction
                     if abs(offset.width) > abs(offset.height) { // horizontal focus
                         let newGesture: GestureDirection = offset.width > 0 ? .next : .prev
@@ -388,9 +416,26 @@ class MouseMonitor: ObservableObject {
                                 self.overlayController.setIndicatorIcon("arrow.up.and.down.circle.fill")
                             }
                         }
+                    } else if offset.height > expandThreshold { // Vertical DOWN focus (Expand Zone)
+                        if pendingGesture != .expand {
+                            pendingGesture = .expand
+                            DispatchQueue.main.async {
+                                self.overlayController.setExpanded(true)
+                                self.overlayController.setBadgeVisible(false) // ENSURE HIDDEN
+                                self.overlayController.setIndicatorIcon("plus.circle.fill")
+                            }
+                        }
+                    }
+                } else if distance < 30 { // Closer reset for expansion specifically
+                    if pendingGesture == .expand {
+                        pendingGesture = nil
+                        DispatchQueue.main.async {
+                            self.overlayController.setExpanded(false)
+                            self.overlayController.setIndicatorIcon(nil as String?)
+                        }
                     }
                 } else if distance < resetThreshold {
-                    if pendingGesture != nil {
+                    if pendingGesture != nil && pendingGesture != .expand {
                         pendingGesture = nil
                         DispatchQueue.main.async {
                             self.overlayController.setWorkspaceName(self.currentWorkspace) // Reset to current
@@ -429,7 +474,7 @@ class MouseMonitor: ObservableObject {
     }
     
     enum GestureDirection {
-        case next, prev, scroll
+        case next, prev, scroll, expand
     }
     
     private func workspaceAt(offset: Int) -> String? {
@@ -446,7 +491,7 @@ class MouseMonitor: ObservableObject {
             command = "workspace next --wrap-around"
         case .prev:
             command = "workspace prev --wrap-around"
-        case .scroll:
+        case .scroll, .expand:
             return
         }
         

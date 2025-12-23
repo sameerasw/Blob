@@ -13,6 +13,7 @@ class RingViewModel: ObservableObject {
     @Published var badgeOffset: CGFloat = 0.0
     @Published var hOffset: CGFloat = 0.0 // For gravitational shake
     @Published var scrollDirection: Int = 0 // For transition direction
+    @Published var isExpanded: Bool = false
     
     func show() {
         // Reset badge state
@@ -33,6 +34,7 @@ class RingViewModel: ObservableObject {
             mouseOffset = .zero // Reset offset for next show
             badgeOpacity = 0.0
             badgeOffset = 0.0
+            isExpanded = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.isVisible = false
@@ -91,6 +93,19 @@ class RingViewModel: ObservableObject {
             }
         }
     }
+    
+    func setExpanded(_ expanded: Bool) {
+        DispatchQueue.main.async {
+            if expanded {
+                // FORCE badge opacity to 0 immediately when expanding
+                self.badgeOpacity = 0.0
+                self.badgeOffset = 0.0
+            }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                self.isExpanded = expanded
+            }
+        }
+    }
 }
 
 struct RingView: View {
@@ -105,13 +120,14 @@ struct RingView: View {
                         Circle()
                             .stroke(Color.white.opacity(0.1), lineWidth: 0)
                             .glassEffect(.regular)
-                            .frame(width: 80, height: 80)
+                            .frame(width: viewModel.isExpanded ? 160 : 80, height: viewModel.isExpanded ? 160 : 80)
                         
                         ZStack {
                             Text(viewModel.workspaceName)
                                 .id(viewModel.workspaceName)
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .foregroundColor(.primary)
+                                .opacity(viewModel.isExpanded ? 0 : 1) // EXTRA VIEW LEVEL HIDE
                                 .transition(
                                     .asymmetric(
                                         insertion: .move(edge: viewModel.scrollDirection > 0 ? .trailing : .leading),
@@ -122,7 +138,7 @@ struct RingView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .glassEffect()
-                        .opacity(viewModel.badgeOpacity)
+                        .opacity(viewModel.isExpanded ? 0 : viewModel.badgeOpacity) // HARD HIDE WHEN EXPANDED
                         .offset(x: viewModel.hOffset, y: viewModel.badgeOffset)
                     }
                     
@@ -225,5 +241,9 @@ class OverlayWindowController {
     
     func setBadgeVisible(_ visible: Bool) {
         viewModel.setBadgeVisible(visible)
+    }
+    
+    func setExpanded(_ expanded: Bool) {
+        viewModel.setExpanded(expanded)
     }
 }
