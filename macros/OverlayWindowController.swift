@@ -18,9 +18,11 @@ class RingViewModel: ObservableObject {
     @Published var isAtCenter: Bool = true
     @Published var triggerPoint: CGPoint = .zero
     @Published var windows: [WindowInfo] = []
+    @Published var showTitles: Bool = UserDefaults.standard.bool(forKey: "showWindowTitles")
     
     func show(at point: CGPoint) {
         // Reset state
+        self.showTitles = UserDefaults.standard.bool(forKey: "showWindowTitles") // Refresh setting
         self.triggerPoint = point
         self.badgeOpacity = 0.0
         self.badgeOffset = 0.0
@@ -210,7 +212,8 @@ struct RingView: View {
                                 window: window,
                                 index: index,
                                 totalCount: min(viewModel.windows.count, 12),
-                                isHovered: viewModel.hoveredWindowId == window.id
+                                isHovered: viewModel.hoveredWindowId == window.id,
+                                showTitles: viewModel.showTitles
                             )
                         }
                     }
@@ -243,6 +246,8 @@ struct RingView: View {
                             .id(icon)
                             .transition(.scale.combined(with: .opacity))
                     }
+                    
+                    // Removed toggle button from here
                 }
             }
             .scaleEffect(viewModel.scale)
@@ -282,6 +287,7 @@ struct WindowBubbleContent: View {
     let index: Int
     let totalCount: Int
     let isHovered: Bool
+    let showTitles: Bool
     
     var body: some View {
         let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
@@ -302,7 +308,7 @@ struct WindowBubbleContent: View {
                     .lineLimit(1)
             }
             
-            if !window.title.isEmpty {
+            if showTitles && !window.title.isEmpty {
                 Text(window.title)
                     .font(.system(size: 8))
                     .foregroundColor(.white.opacity(0.7))

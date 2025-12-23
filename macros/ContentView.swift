@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var mouseMonitor: MouseMonitor
+    @AppStorage("showWindowTitles") private var showWindowTitles = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -26,6 +27,9 @@ struct ContentView: View {
                             .font(.headline)
                         
                         Toggle("Reverse Scroll Direction", isOn: $mouseMonitor.reverseScroll)
+                            .toggleStyle(.switch)
+                            
+                        Toggle("Show Window Titles", isOn: $showWindowTitles)
                             .toggleStyle(.switch)
                         
                         VStack(alignment: .leading, spacing: 8) {
