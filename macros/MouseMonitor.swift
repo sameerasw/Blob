@@ -367,7 +367,6 @@ class MouseMonitor: ObservableObject {
                 let exitThreshold: CGFloat = 160 // Distance to "select"
                 let expandThreshold: CGFloat = 80 // Distance to "expand"
                 let resetThreshold: CGFloat = 80 // Distance to "clear/reset"
-                let badgeThreshold: CGFloat = 60 // Distance to show workspace name
                 
                 // Calculation for interactive badge fade
                 // Fade from distance 40 (edge of inner circle) to 80 (reset threshold)
