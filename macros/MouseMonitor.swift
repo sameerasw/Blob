@@ -214,22 +214,33 @@ class MouseMonitor: ObservableObject {
                         height: -(location.y - trigger.y)
                     )
                     
+                    let dist = sqrt(offset.width * offset.width + offset.height * offset.height)
+                    
+                    // Check if clicked ON Center Hub (Toggle Grouping)
+                    if dist < 80 { // Expanded hub radius is 80 (frame 160)
+                        print("DEBUG: Interactive Click on Center Hub - Toggling Grouping")
+                        DispatchQueue.main.async {
+                            self.overlayController.viewModel.toggleGrouping()
+                        }
+                        return nil // Consume click, keep overlay open
+                    }
+                    
                     // Check if clicked ON a window bubble
                     if let selectedWindow = self.overlayController.windowAtOffset(offset) {
                         print("DEBUG: Interactive Click on Window: \(selectedWindow.appName)")
                         self.focusWindow(id: "\(selectedWindow.id)", workspace: selectedWindow.workspace)
+                        
+                        // Dismiss after selecting window
+                        DispatchQueue.main.async {
+                            self.dismissOverlay()
+                        }
                     } else {
                         print("DEBUG: Interactive Click Outside - Dismissing")
-                    }
-                    
-                    // Dismiss overlay in both cases
-                    DispatchQueue.main.async {
-                        self.isInteractiveMode = false
-                        self.triggerPoint = nil // Reset trigger
-                        self.overlayController.updateMouseOffset(CGSize.zero)
-                        self.overlayController.setIndicatorIcon(nil as String?)
-                        self.overlayController.setHoveredWindow(nil)
-                        self.overlayController.hide()
+                        
+                        // Dismiss if clicked outside everything
+                        DispatchQueue.main.async {
+                            self.dismissOverlay()
+                        }
                     }
                 }
                 return nil // Consume the click
@@ -669,6 +680,17 @@ class MouseMonitor: ObservableObject {
         }
     }
     
+    // MARK: - Helper Methods
+    
+    private func dismissOverlay() {
+        self.isInteractiveMode = false
+        self.triggerPoint = nil
+        self.overlayController.updateMouseOffset(CGSize.zero)
+        self.overlayController.setIndicatorIcon(nil as String?)
+        self.overlayController.setHoveredWindow(nil)
+        self.overlayController.hide()
+    }
+
     private func focusWindow(id: String, workspace: String? = nil) {
         let aerospacePath = "/opt/homebrew/bin/aerospace"
         

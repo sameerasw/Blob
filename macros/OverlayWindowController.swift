@@ -20,6 +20,31 @@ class RingViewModel: ObservableObject {
     @Published var windows: [WindowInfo] = []
     @Published var showTitles: Bool = UserDefaults.standard.bool(forKey: "showWindowTitles")
     
+    // Grouping Mode
+    @Published var isWorkspaceGrouped: Bool = UserDefaults.standard.bool(forKey: "isWorkspaceGrouped")
+
+    func toggleGrouping() {
+        isWorkspaceGrouped.toggle()
+        UserDefaults.standard.set(isWorkspaceGrouped, forKey: "isWorkspaceGrouped")
+    }
+    
+    var displayedWindows: [WindowInfo] {
+        if isWorkspaceGrouped {
+            // Group by workspace, take the first window as representative
+            var seenWorkspaces = Set<String>()
+            return windows.filter { window in
+                guard let ws = window.workspace, !seenWorkspaces.contains(ws) else { return false }
+                seenWorkspaces.insert(ws)
+                return true
+            }
+        }
+        return windows
+    }
+    
+    func windowsInWorkspace(_ workspace: String) -> [WindowInfo] {
+        return windows.filter { $0.workspace == workspace }
+    }
+    
     func show(at point: CGPoint) {
         // Reset state
         self.showTitles = UserDefaults.standard.bool(forKey: "showWindowTitles") // Refresh setting
@@ -180,6 +205,13 @@ struct RingView: View {
                             .stroke(Color.white.opacity(0.1), lineWidth: 0)
                             .glassEffect()
                             .frame(width: viewModel.isExpanded ? 160 : 80, height: viewModel.isExpanded ? 160 : 80)
+                            .onTapGesture {
+                                if viewModel.isExpanded {
+                                    withAnimation(.spring()) {
+                                        viewModel.toggleGrouping()
+                                    }
+                                }
+                            }
                         
                         // Tracker Circle
                         Circle()
@@ -193,10 +225,10 @@ struct RingView: View {
                 // 2. Bubble Background Layer (Regular Translucency - NO merging/artifacts)
                 ZStack {
                     if viewModel.isExpanded {
-                        ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
+                        ForEach(Array(viewModel.displayedWindows.suffix(12).enumerated()), id: \.offset) { index, window in
                             WindowBubbleBackground(
                                 index: index,
-                                totalCount: min(viewModel.windows.count, 12),
+                                totalCount: min(viewModel.displayedWindows.count, 12),
                                 isHovered: viewModel.hoveredWindowId == window.id
                             )
                         }
@@ -207,13 +239,15 @@ struct RingView: View {
                 ZStack {
                     // Window Titles & App Names
                     if viewModel.isExpanded {
-                        ForEach(Array(viewModel.windows.suffix(12).enumerated()), id: \.offset) { index, window in
+                        ForEach(Array(viewModel.displayedWindows.suffix(12).enumerated()), id: \.offset) { index, window in
                             WindowBubbleContent(
                                 window: window,
                                 index: index,
-                                totalCount: min(viewModel.windows.count, 12),
+                                totalCount: min(viewModel.displayedWindows.count, 12),
                                 isHovered: viewModel.hoveredWindowId == window.id,
-                                showTitles: viewModel.showTitles
+                                showTitles: viewModel.showTitles,
+                                isGrouped: viewModel.isWorkspaceGrouped,
+                                viewModel: viewModel
                             )
                         }
                     }
@@ -288,6 +322,8 @@ struct WindowBubbleContent: View {
     let totalCount: Int
     let isHovered: Bool
     let showTitles: Bool
+    var isGrouped: Bool = false
+    var viewModel: RingViewModel? // Optional to avoid cycle issues, passed from parent
     
     var body: some View {
         let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
@@ -296,24 +332,64 @@ struct WindowBubbleContent: View {
         let offsetY = radius * CGFloat(sin(angle))
         
         return VStack(spacing: 2) {
-            if let icon = AppIconProvider.shared.icon(for: window.appName) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 48, height: 48)
-            } else {
-                Text(window.appName)
+            if isGrouped, let vm = viewModel, let ws = window.workspace {
+                // WORKSPACE BUBBLE: Grid of Icons
+                let workspaceWindows = vm.windowsInWorkspace(ws)
+                let uniqueApps = Array(Set(workspaceWindows.map { $0.appName })).prefix(4).sorted()
+                
+                if !uniqueApps.isEmpty {
+                    VStack(spacing: 2) {
+                        let rows = uniqueApps.chunked(into: 2)
+                        ForEach(rows, id: \.self) { row in
+                            HStack(spacing: 2) {
+                                ForEach(row, id: \.self) { appName in
+                                    if let icon = AppIconProvider.shared.icon(for: appName) {
+                                        Image(nsImage: icon)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 20, height: 20)
+                                    } else {
+                                        Circle()
+                                            .fill(Color.white.opacity(0.3))
+                                            .frame(width: 20, height: 20)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(width: 48, height: 48) // Fixed container size
+                } else {
+                    // Fallback to Stack Icon
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.white)
+                        .frame(width: 48, height: 48)
+                }
+
+                Text(ws)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white)
-                    .lineLimit(1)
-            }
-            
-            if showTitles && !window.title.isEmpty {
-                Text(window.title)
-                    .font(.system(size: 8))
-                    .foregroundColor(.white.opacity(0.7))
-                    .lineLimit(1)
-                    .frame(maxWidth: 60)
+            } else {
+                // NORMAL WINDOW BUBBLE
+                if let icon = AppIconProvider.shared.icon(for: window.appName) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 48, height: 48)
+                } else {
+                    Text(window.appName)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+                
+                if showTitles && !window.title.isEmpty {
+                    Text(window.title)
+                        .font(.system(size: 8))
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                        .frame(maxWidth: 60)
+                }
             }
         }
         .scaleEffect(isHovered ? 1.2 : 1.0)
@@ -369,7 +445,7 @@ extension View {
 
 class OverlayWindowController {
     var window: NSPanel?
-    private let viewModel = RingViewModel()
+    let viewModel = RingViewModel()
     private let windowSize: CGFloat = 600
     
     init() {
@@ -470,8 +546,8 @@ class OverlayWindowController {
     
     func windowAtOffset(_ offset: CGSize) -> WindowInfo? {
         // Must match the layout in RingView/WindowBubble
-        let windows = Array(viewModel.windows.suffix(12))
-        let totalCount = min(viewModel.windows.count, 12)
+        let windows = Array(viewModel.displayedWindows.suffix(12))
+        let totalCount = min(viewModel.displayedWindows.count, 12)
         let radius: CGFloat = 160
         let tolerance: CGFloat = 45 // Bubble is 80x80, so radius 40. +5 for ease of use.
         
