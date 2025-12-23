@@ -360,7 +360,6 @@ class MouseMonitor: ObservableObject {
                         return nil // Swallow Mouse Up
                     }
                     
-                    let currentTriggerPoint = self.triggerPoint
                     self.triggerPoint = nil
                     
                     // Trigger pending gesture or final workspace switch on hide

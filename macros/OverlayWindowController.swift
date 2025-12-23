@@ -290,10 +290,17 @@ struct WindowBubbleContent: View {
         let offsetY = radius * CGFloat(sin(angle))
         
         return VStack(spacing: 2) {
-            Text(window.appName)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.white)
-                .lineLimit(1)
+            if let icon = AppIconProvider.shared.icon(for: window.appName) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 48, height: 48)
+            } else {
+                Text(window.appName)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+            }
             
             if !window.title.isEmpty {
                 Text(window.title)
@@ -463,18 +470,44 @@ class OverlayWindowController {
         let tolerance: CGFloat = 45 // Bubble is 80x80, so radius 40. +5 for ease of use.
         
         for (index, window) in windows.enumerated() {
-            let angle = (Double(index) / Double(totalCount)) * 2 * .pi - .pi / 2
-            let bubbleX = radius * cos(angle)
-            let bubbleY = radius * sin(angle)
+            let angle = Double(index) / Double(totalCount) * 2 * .pi - .pi / 2
+            let cx = radius * CGFloat(cos(angle))
+            let cy = radius * CGFloat(sin(angle))
             
-            let dx = Double(offset.width) - bubbleX
-            let dy = Double(offset.height) - bubbleY
+            // Calculate distance from click to bubble center
+            let dx = Double(offset.width - cx)
+            let dy = Double(offset.height - cy)
             let distVal = sqrt(dx*dx + dy*dy)
             
-            if distVal < tolerance {
+            if distVal < Double(tolerance) {
                 return window
             }
         }
+        return nil
+    }
+}
+
+// MARK: - App Icon Provider
+
+class AppIconProvider {
+    static let shared = AppIconProvider()
+    private var cache: [String: NSImage] = [:]
+    
+    func icon(for appName: String) -> NSImage? {
+        // Fast path: Check cache
+        if let cached = cache[appName] {
+            return cached
+        }
+        
+        // Lookup logic
+        let runningApps = NSWorkspace.shared.runningApplications
+        if let app = runningApps.first(where: { $0.localizedName == appName }) {
+            if let icon = app.icon {
+                cache[appName] = icon
+                return icon
+            }
+        }
+        
         return nil
     }
 }
