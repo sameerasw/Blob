@@ -197,6 +197,16 @@ class MouseMonitor: ObservableObject {
                     delta = event.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
                 }
                 
+                // RESTRICT SCROLL: Only allow if mouse is moved UP far enough
+                let location = self.convertPoint(event.location)
+                if let trigger = triggerPoint {
+                    let offsetY = -(location.y - trigger.y)
+                    // If mouse is not far enough UP (beyond threshold), ignore scroll
+                    if offsetY > -100 { // UP is negative offsetY
+                        return nil
+                    }
+                }
+                
                 if reverseScroll {
                     delta = -delta
                 }
@@ -261,7 +271,7 @@ class MouseMonitor: ObservableObject {
                         self.overlayController.hide()
                     }
                     
-                    if let gesture = gestureToFire {
+                    if let gesture = gestureToFire, gesture != .scroll {
                         triggerWorkspaceGesture(direction: gesture)
                     } else if let initial = initialWorkspace, currentWorkspace != initial {
                         // Regular scroll-based switch
@@ -300,6 +310,13 @@ class MouseMonitor: ObservableObject {
                                 self.overlayController.setIndicatorIcon(icon)
                             }
                         }
+                    } else if offset.height < -120 { // Vertical UP focus (Scroll Zone)
+                        if pendingGesture != .scroll {
+                            pendingGesture = .scroll
+                            DispatchQueue.main.async {
+                                self.overlayController.setIndicatorIcon("arrow.up.and.down.circle.fill")
+                            }
+                        }
                     }
                 } else if distance < resetThreshold {
                     if pendingGesture != nil {
@@ -317,7 +334,12 @@ class MouseMonitor: ObservableObject {
                         if abs(offset.width) > abs(offset.height) {
                             icon = offset.width > 0 ? "arrow.right" : "arrow.left"
                         } else {
-                            icon = offset.height > 0 ? "arrow.down" : "arrow.up"
+                            // If moving UP, show scroll icon if close to zone
+                            if offset.height < -60 {
+                                icon = "arrow.up.and.down.circle"
+                            } else {
+                                icon = offset.height > 0 ? "arrow.down" : "arrow.up"
+                            }
                         }
                         DispatchQueue.main.async {
                             self.overlayController.setIndicatorIcon(icon)
@@ -335,11 +357,19 @@ class MouseMonitor: ObservableObject {
     }
     
     enum GestureDirection {
-        case next, prev
+        case next, prev, scroll
     }
     
     private func triggerWorkspaceGesture(direction: GestureDirection) {
-        let command = direction == .next ? "workspace next --wrap-around" : "workspace prev --wrap-around"
+        let command: String
+        switch direction {
+        case .next:
+            command = "workspace next --wrap-around"
+        case .prev:
+            command = "workspace prev --wrap-around"
+        case .scroll:
+            return
+        }
         
         print("DEBUG: Executing deferred gesture: \(command)")
         
