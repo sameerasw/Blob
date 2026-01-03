@@ -1,0 +1,58 @@
+name: Telegram Release Notification
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Release Data
+        id: get_data
+        run: |
+          # If triggered manually, fetch the latest release via GitHub API
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Manual trigger: Fetching latest release info..."
+            RELEASE_JSON=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest)
+            echo "body=$(echo "$RELEASE_JSON" | jq -r .body)" >> $GITHUB_OUTPUT
+            echo "tag=$(echo "$RELEASE_JSON" | jq -r .tag_name)" >> $GITHUB_OUTPUT
+            echo "url=$(echo "$RELEASE_JSON" | jq -r .html_url)" >> $GITHUB_OUTPUT
+          else
+            # If triggered by an actual release event
+            echo "body=${{ github.event.release.body }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "url=${{ github.event.release.html_url }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send to Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          # Use outputs from the previous step
+          RELEASE_BODY: ${{ steps.get_data.outputs.body }}
+          TAG_NAME: ${{ steps.get_data.outputs.tag }}
+          REPO_NAME: ${{ github.repository }}
+          URL: ${{ steps.get_data.outputs.url }}
+        run: |
+          jq -n \
+            --arg chat_id "$CHAT_ID" \
+            --arg thread_id "$TOPIC_ID" \
+            --arg text "🚀 *Release Update: $REPO_NAME $TAG_NAME*
+
+          $RELEASE_BODY
+
+          [View Release]($URL)" \
+            '{
+              chat_id: $chat_id, 
+              message_thread_id: $thread_id, 
+              text: $text, 
+              parse_mode: "Markdown"
+            }' > payload.json
+
+          curl -X POST \
+               -H "Content-Type: application/json" \
+               -d @payload.json \
+               https://api.telegram.org/bot$BOT_TOKEN/sendMessage
